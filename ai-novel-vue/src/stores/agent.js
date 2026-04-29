@@ -9,6 +9,7 @@ export const useAgentStore = defineStore('agent', () => {
   const lastSeq = ref(0)
   const error = ref(null)
   const issues = ref([])
+  const currentPlan = ref(null)
 
   const isActive = computed(() =>
     ['queued', 'running', 'cancelling'].includes(status.value)
@@ -56,7 +57,7 @@ export const useAgentStore = defineStore('agent', () => {
   }
 
   return {
-    currentRunId, status, phase, events, lastSeq, error, issues,
+    currentRunId, status, phase, events, lastSeq, error, issues, currentPlan,
     isActive, isCompleted, needsReview,
     setRun, addEvent, updatePhase, setError, setIssues, reset,
   }

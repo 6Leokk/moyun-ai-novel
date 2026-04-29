@@ -73,8 +73,8 @@ async function poll(): Promise<Task | null> {
 async function executeTask(task: Task): Promise<void> {
   const db = getDb()
 
-  // Verify project not deleted
-  const proj = await db.select({ deletedAt: projects.deletedAt, sqliteStatus: projects.sqliteStatus })
+  // Verify project not deleted + get userId for AI calls
+  const proj = await db.select({ deletedAt: projects.deletedAt, sqliteStatus: projects.sqliteStatus, userId: projects.userId })
     .from(projects).where(eq(projects.id, task.projectId)).limit(1)
 
   if (proj.length === 0 || proj[0].deletedAt) {
@@ -103,7 +103,7 @@ async function executeTask(task: Task): Promise<void> {
         const db = projectDBManager.open(task.projectId)
         const ch = db.prepare('SELECT content FROM chapters WHERE id = ?').get(task.chapterId) as any
         if (ch?.content) {
-          const ai = new AIService({ userId: '', projectId: task.projectId })
+          const ai = new AIService({ userId: proj[0].userId, projectId: task.projectId })
           const result = await ai.generateJSON<{ summary: string }>({ prompt: '提取本章100-200字摘要。只返回JSON: {"summary":"..."}\n\n章节:' + ch.content.slice(0, 5000), temperature: 0.3 })
           if (result?.summary) db.prepare('UPDATE chapters SET summary=?, summary_status=? WHERE id=?').run(result.summary, 'ready', task.chapterId)
         }
@@ -113,7 +113,7 @@ async function executeTask(task: Task): Promise<void> {
         const db = projectDBManager.open(task.projectId)
         const ch = db.prepare('SELECT content FROM chapters WHERE id = ?').get(task.chapterId) as any
         if (ch?.content) {
-          const ai = new AIService({ userId: '', projectId: task.projectId })
+          const ai = new AIService({ userId: proj[0].userId, projectId: task.projectId })
           const result = await ai.generateJSON<Array<{ title: string; content: string; category: string }>>({ prompt: '提取3-5个关键记忆。返回JSON数组:[{"title":"","content":"","category":"plot_event|character_state|foreshadow"}...]\n\n章节:' + ch.content.slice(0, 5000), temperature: 0.3 })
           if (Array.isArray(result)) {
             const insert = db.prepare('INSERT INTO memories (id,chapter_id,category,title,content,importance,source_type,weight,status) VALUES (?,?,?,?,?,5,\'extracted\',1.0,\'active\')')
@@ -122,8 +122,11 @@ async function executeTask(task: Task): Promise<void> {
         }
         break
       }
-      case 'embed_memories': break  // Phase 2: OpenAI embeddings API
-      case 'update_character_states': break  // Phase 2: AI character state analysis
+      case 'embed_memories':
+      case 'update_character_states':
+        // Phase 2 — not yet implemented, skip without marking done
+        await db.update(postProcessingTasks).set({ status: 'pending', lockedBy: null, lockedAt: null, nextRetryAt: new Date(Date.now() + 300_000) } as any).where(eq(postProcessingTasks.id, task.id))
+        return
     }
 
     await db.update(postProcessingTasks).set({

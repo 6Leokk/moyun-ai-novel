@@ -35,6 +35,24 @@
       </div>
     </div>
 
+    <!-- Plan Review Banner -->
+    <div v-if="showPlanReview" class="plan-review-banner">
+      <div class="plan-review-header">📋 规划审核 — 请确认场景规划</div>
+      <div class="plan-review-body">
+        <div v-if="agentStore.currentPlan">
+          <div class="plan-goal">{{ agentStore.currentPlan.chapterGoal }}</div>
+          <div v-for="s in (agentStore.currentPlan.scenes || [])" :key="s.id" class="plan-scene">
+            <strong>{{ s.title }}</strong> ({{ s.expectedWords }}字) — {{ s.characters?.join(', ') }}
+            <div class="plan-beats">{{ s.beats?.join(' → ') }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="plan-review-actions">
+        <button class="btn btn-primary" @click="confirmPlan">✅ 确认规划，开始写作</button>
+        <button class="btn" @click="showPlanReview = false">暂不确认（稍后自动继续）</button>
+      </div>
+    </div>
+
     <!-- Agent Progress Bar -->
     <AgentProgressBar
       @accept="onAcceptRun"
@@ -124,6 +142,7 @@ import { useNovelStore } from '../stores/novel'
 import { useAIStore } from '../stores/ai'
 import { useAgentStore } from '../stores/agent'
 import { generateAgent, cancelAgentRun, acceptAgentRun, discardAgentRun } from '../api/novel'
+import { api } from '../api/index'
 import { storeToRefs } from 'pinia'
 import { useToastStore } from '../stores/toast'
 import NewChapterModal from '../components/NewChapterModal.vue'
@@ -136,6 +155,16 @@ const aiStore = useAIStore()
 const { openPanel, sendMessage } = aiStore
 const agentStore = useAgentStore()
 const toast = useToastStore()
+const showPlanReview = ref(false)
+
+async function confirmPlan() {
+  if (!agentStore.currentRunId) return
+  try {
+    await api.post(`/agent-runs/${agentStore.currentRunId}/confirm-plan`)
+    showPlanReview.value = false
+    toast.success('规划已确认，继续生成')
+  } catch { toast.error('确认失败') }
+}
 
 // ── Deep Generation ──
 async function onDeepGenerate() {
@@ -155,6 +184,12 @@ async function onDeepGenerate() {
       },
       onPhase(evt) {
         agentStore.updatePhase(evt.phase, evt.status)
+        if (evt.status === 'awaiting_review') showPlanReview.value = true
+      },
+      onPlanReady(evt) {
+        agentStore.currentPlan = evt.plan
+        agentStore.addEvent({ eventType: 'agent:plan_ready', payload: evt })
+        showPlanReview.value = true
       },
       onScene(evt) {
         agentStore.addEvent(evt)
@@ -579,6 +614,15 @@ function onTitleChange() {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Plan Review */
+.plan-review-banner { margin: 0 0 12px; padding: 16px 22px; background: var(--bg-panel); border: 2px solid var(--accent-amber); border-radius: var(--radius-sm); }
+.plan-review-header { font-size: 16px; font-weight: 600; margin-bottom: 10px; color: var(--accent-amber); }
+.plan-review-body { max-height: 300px; overflow-y: auto; margin-bottom: 12px; font-size: 13px; }
+.plan-goal { margin-bottom: 8px; color: var(--text-secondary); }
+.plan-scene { padding: 6px 0; border-bottom: 1px solid var(--border-color); }
+.plan-beats { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.plan-review-actions { display: flex; gap: 8px; }
 
 .toolbar-divider {
   width: 1px;

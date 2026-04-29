@@ -59,13 +59,11 @@ export class AgentOrchestrator {
     const plan = await this.runPlanner(mode)
     if (!plan) throw new Error('Planner 失败')
 
-    // Planner review checkpoint: pause for user confirmation
+    // Planner review checkpoint: pause for user confirmation (no auto-continue)
     this.emit('agent:plan_ready', { plan, runId: this.runId })
+    this.emit('agent:phase', { phase: 'planning', status: 'awaiting_review', message: '规划完成，等待确认' })
     const planConfirmed = await this.waitForPlanConfirmation()
-    if (!planConfirmed) {
-      // Auto-continue after 30s timeout — user can still review plan post-hoc
-      this.emit('agent:phase', { phase: 'planning', status: 'auto_continue', message: '30s 无操作，自动继续' })
-    }
+    if (!planConfirmed) { throw new Error('规划审核超时或取消') }
 
     await this.saveCheckpoint({ phase: 'planning', plan })
 
@@ -233,15 +231,16 @@ export class AgentOrchestrator {
 
   private async waitForPlanConfirmation(): Promise<boolean> {
     const db = getDb()
-    // Poll for up to 30 seconds (6 checks × 5s)
-    for (let i = 0; i < 6; i++) {
+    const timeout = parseInt(process.env.PLANNER_REVIEW_TIMEOUT || '300', 10) // 5 min default
+    const maxChecks = Math.ceil(timeout / 5) // Check every 5 seconds
+    for (let i = 0; i < maxChecks; i++) {
       await new Promise(r => setTimeout(r, 5000))
       const rows = await db.select({ planStatus: agentRuns.planStatus }).from(agentRuns)
         .where(eq(agentRuns.id, this.runId)).limit(1)
       if (rows[0]?.planStatus === 'confirmed') return true
       if (await this.isCancelled()) return false
     }
-    return false // timeout: auto-continue
+    return false // timeout: throw
   }
 
   // ── Helpers ──
