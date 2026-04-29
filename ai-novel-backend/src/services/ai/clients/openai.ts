@@ -2,17 +2,23 @@ import { BaseAIClient } from './base.ts'
 
 export class OpenAIClient extends BaseAIClient {
   async chatCompletion(params: {
-    messages: Array<{ role: string; content: string }>
+    messages: Array<{ role: string; content?: string; tool_calls?: any[]; tool_call_id?: string }>
     model: string
     temperature?: number
     maxTokens?: number
     tools?: any[]
     toolChoice?: string
-  }): Promise<{ content: string; usage?: { promptTokens: number; completionTokens: number } }> {
+  }): Promise<{ content: string; toolCalls?: any[]; usage?: { promptTokens: number; completionTokens: number } }> {
     return this.requestWithRetry(async () => {
       const body: Record<string, unknown> = {
         model: params.model,
-        messages: params.messages,
+        messages: params.messages.map(m => {
+          const entry: any = { role: m.role }
+          if (m.content) entry.content = m.content
+          if (m.tool_calls) entry.tool_calls = m.tool_calls
+          if (m.tool_call_id) entry.tool_call_id = m.tool_call_id
+          return entry
+        }),
         temperature: params.temperature ?? 0.8,
         max_tokens: params.maxTokens ?? 4096,
       }
@@ -39,8 +45,10 @@ export class OpenAIClient extends BaseAIClient {
       }
 
       const data = await res.json() as any
+      const msg = data.choices?.[0]?.message
       return {
-        content: data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning || '',
+        content: msg?.content || msg?.reasoning || '',
+        toolCalls: msg?.tool_calls || undefined,
         usage: data.usage ? {
           promptTokens: data.usage.prompt_tokens,
           completionTokens: data.usage.completion_tokens,

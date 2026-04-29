@@ -256,44 +256,75 @@ export class AIService {
           yield { type: 'chunk', text: chunk }
         }
       } else {
-        // Tool-use loop: prompt-based function calling via JSON
-        const toolDefs = params.tools.map(t => `- ${t.name}: ${t.description} (args: ${JSON.stringify(t.input_schema)})`).join('\n')
-        const toolPrompt = `${params.prompt}\n\n你可以调用以下工具获取信息。需要调用时，输出JSON格式: {"tool":"工具名","args":{...}}，调用结果会返回给你。\n\n可用工具：\n${toolDefs}`
+        // Native function calling loop
+        const messages: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }> = []
+        if (params.systemPrompt) messages.push({ role: 'system', content: params.systemPrompt })
+        messages.push({ role: 'user', content: params.prompt })
 
-        let currentPrompt = toolPrompt
+        const openaiTools = params.tools.map(t => ({
+          type: 'function',
+          function: {
+            name: t.name,
+            description: t.description,
+            parameters: {
+              type: 'object',
+              properties: t.input_schema?.properties || {},
+              required: t.input_schema?.required || [],
+            },
+          },
+        }))
+
+        // Use OpenAI client directly for native function calling
+        const openaiClient = (provider as any).client as OpenAIClient
+        if (!openaiClient?.chatCompletion) {
+          // Fallback for non-OpenAI providers
+          for await (const chunk of provider.generateStream({ prompt: params.prompt, model: params.model || this.model, temperature: params.temperature, maxTokens: params.maxTokens, systemPrompt: params.systemPrompt })) {
+            totalText += chunk; yield { type: 'chunk', text: chunk }
+          }
+          return
+        }
+
         let maxIterations = 10
 
         while (maxIterations-- > 0) {
-          const result = await this.generateText({
-            prompt: currentPrompt,
-            systemPrompt: params.systemPrompt,
-            temperature: params.temperature,
-            model: params.model,
-            maxTokens: params.maxTokens,
+          const result = await openaiClient.chatCompletion({
+            messages,
+            model: params.model || this.model,
+            temperature: params.temperature ?? this.temperature,
+            maxTokens: params.maxTokens ?? this.maxTokens,
+            tools: openaiTools,
+            toolChoice: 'auto',
           })
 
-          const text = result.content
-          // Check for tool call in response
-          const toolMatch = text.match(/\{"tool"\s*:\s*"([^"]+)"\s*,\s*"args"\s*:\s*(\{[^}]+\})\s*\}/)
+          const text = result.content || ''
+          const toolCalls = result.toolCalls
 
-          if (toolMatch) {
-            const toolName = toolMatch[1]
-            try {
-              const args = JSON.parse(toolMatch[2])
-              yield { type: 'tool_call', tool: toolName, args }
+          if (toolCalls?.length) {
+            messages.push({ role: 'assistant', content: text || null, tool_calls: toolCalls } as any)
 
-              const toolResult = await params.onToolCall(toolName, args)
-              yield { type: 'tool_result', tool: toolName, result: toolResult }
+            for (const tc of toolCalls) {
+              const fn = tc.function
+              let args = {}
+              try { args = JSON.parse(fn.arguments || '{}') } catch {}
+              yield { type: 'tool_call', tool: fn.name, args }
 
-              // Append result and continue
-              currentPrompt = `${params.prompt}\n\n工具调用: ${toolName}\n结果: ${JSON.stringify(toolResult)}\n\n请继续写作。`
-            } catch { break }
-          } else {
-            // No tool call, this is the final text
+              try {
+                const toolResult = await params.onToolCall(fn.name, args)
+                yield { type: 'tool_result', tool: fn.name, result: toolResult }
+                messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(toolResult) } as any)
+              } catch (e: any) {
+                messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: e.message }) } as any)
+              }
+            }
+            continue
+          }
+
+          if (text) {
             totalText = text
             yield { type: 'chunk', text }
             break
           }
+          break
         }
       }
 
