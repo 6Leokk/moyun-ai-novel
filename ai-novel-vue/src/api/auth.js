@@ -18,6 +18,10 @@ export async function refreshToken(token) {
   return data
 }
 
+export async function me() {
+  return api.get('/auth/me')
+}
+
 export function logout() {
   clearAuthToken()
 }

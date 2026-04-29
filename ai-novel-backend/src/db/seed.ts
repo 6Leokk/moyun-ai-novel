@@ -1,12 +1,45 @@
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 import { getDb } from './connection.ts'
 import { relationshipTypes, promptTemplates, writingStyles, users, userAiPreferences } from './schema.ts'
-import { eq, sql } from 'drizzle-orm'
+import { eq, ne, sql } from 'drizzle-orm'
+
+function makePassword(): string {
+  return crypto.randomBytes(18).toString('base64url')
+}
 
 export async function seedSystemData() {
   const db = getDb()
 
-  // Demo user
+  // Sole site admin. Set ADMIN_PASSWORD to choose/update the password.
+  const adminPassword = process.env.ADMIN_PASSWORD || makePassword()
+  const adminHash = await bcrypt.hash(adminPassword, 10)
+  const existingAdmin = await db.select({ id: users.id }).from(users).where(eq(users.username, 'admin')).limit(1)
+  if (existingAdmin.length === 0) {
+    const [admin] = await db.insert(users).values({
+      username: 'admin',
+      email: process.env.ADMIN_EMAIL || 'admin@moyun.local',
+      passwordHash: adminHash,
+      isAdmin: true,
+      trustLevel: 3,
+      deletedAt: null,
+    }).returning({ id: users.id })
+    await db.insert(userAiPreferences).values({ userId: admin.id })
+    console.log(`Admin account created: admin / ${adminPassword}`)
+  } else {
+    const updateData: Record<string, unknown> = {
+      isAdmin: true,
+      trustLevel: 3,
+      deletedAt: null,
+    }
+    if (process.env.ADMIN_EMAIL) updateData.email = process.env.ADMIN_EMAIL
+    if (process.env.ADMIN_PASSWORD) updateData.passwordHash = adminHash
+    await db.update(users).set(updateData).where(eq(users.username, 'admin'))
+    if (process.env.ADMIN_PASSWORD) console.log('Admin password updated from ADMIN_PASSWORD')
+  }
+  await db.update(users).set({ isAdmin: false } as any).where(ne(users.username, 'admin'))
+
+  // Demo user: lowest non-admin level.
   const existingUser = await db.select({ id: users.id }).from(users).where(eq(users.email, 'demo@example.com')).limit(1)
   if (existingUser.length === 0) {
     const passwordHash = await bcrypt.hash('123456', 10)
@@ -14,8 +47,12 @@ export async function seedSystemData() {
       username: 'demo',
       email: 'demo@example.com',
       passwordHash,
+      isAdmin: false,
+      trustLevel: 1,
     }).returning({ id: users.id })
     await db.insert(userAiPreferences).values({ userId: user.id })
+  } else {
+    await db.update(users).set({ isAdmin: false, trustLevel: 1 } as any).where(eq(users.email, 'demo@example.com'))
   }
 
   // Relationship types — use raw SQL insert to avoid Drizzle type issues

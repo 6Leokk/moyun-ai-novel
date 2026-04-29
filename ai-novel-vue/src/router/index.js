@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getAuthToken } from '../api/index.js'
+import { useAuthStore } from '../stores/auth.js'
 import DashboardView from '../views/DashboardView.vue'
 import EditorView from '../views/EditorView.vue'
 import CharactersView from '../views/CharactersView.vue'
@@ -21,7 +22,7 @@ const routes = [
   { path: '/world', name: 'World', component: WorldView, meta: { title: '世界观设定', icon: '🌍' } },
   { path: '/stats', name: 'Stats', component: StatsView, meta: { title: '写作统计', icon: '📈' } },
   { path: '/settings', name: 'Settings', component: SettingsView, meta: { title: '系统设置', icon: '⚙️' } },
-  { path: '/admin', name: 'Admin', component: AdminView, meta: { title: '管理面板', icon: '🔧' } },
+  { path: '/admin', name: 'Admin', component: AdminView, meta: { title: '管理面板', icon: '🔧', adminOnly: true } },
   { path: '/usage', name: 'Usage', component: UsageView, meta: { title: '用量统计', icon: '📊' } }
 ]
 
@@ -33,11 +34,25 @@ const router = createRouter({
   }
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   document.title = to.meta.title ? `墨韵AI - ${to.meta.title}` : '墨韵AI'
 
   if (!to.meta.public && !getAuthToken()) {
     return { path: '/login' }
+  }
+
+  if (!to.meta.public && getAuthToken()) {
+    const authStore = useAuthStore()
+    if (!authStore.user) {
+      try {
+        await authStore.loadCurrentUser()
+      } catch {
+        return { path: '/login' }
+      }
+    }
+    if (to.meta.adminOnly && !authStore.isAdmin) {
+      return { path: '/dashboard' }
+    }
   }
 })
 

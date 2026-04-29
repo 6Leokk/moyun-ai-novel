@@ -29,6 +29,8 @@ services:
       DATABASE_URL: postgres://moyun:${DB_PASSWORD}@postgres:5432/moyun
       JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@moyun.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       PORT: "3000"
       NODE_ENV: production
       DB_POOL_MIN: "2"

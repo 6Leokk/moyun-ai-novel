@@ -90,27 +90,27 @@
 
     <!-- Per-Model Breakdown -->
     <div class="model-section">
-      <div class="chart-title" style="margin-bottom:14px">模型用量分布</div>
-      <table class="model-table" v-if="models.length">
-        <thead><tr><th>模型</th><th>提供商</th><th>调用次数</th><th>Tokens</th><th>费用</th></tr></thead>
-        <tbody>
-          <tr v-for="m in models" :key="m.model">
-            <td class="model-name-cell">{{ m.model }}</td>
-            <td><span class="provider-tag">{{ m.provider }}</span></td>
-            <td>{{ m.calls.toLocaleString() }}</td>
-            <td>{{ m.tokens.toLocaleString() }}</td>
-            <td class="cost-cell">${{ m.cost.toFixed(6) }}</td>
-          </tr>
-          <tr class="total-row">
-            <td class="model-name-cell" style="font-weight:600">合计</td>
-            <td>—</td>
-            <td>{{ all.calls.toLocaleString() }}</td>
-            <td>{{ all.tokens.toLocaleString() }}</td>
-            <td class="cost-cell">${{ all.cost.toFixed(6) }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-else class="empty-chart">暂无数据</div>
+      <div class="chart-title" style="margin-bottom:16px">模型用量分布</div>
+      <div v-if="models.length" class="model-breakdown-v2">
+        <div v-for="m in models" :key="m.model" class="model-row-v2" @mouseenter="modelHovered = m" @mouseleave="modelHovered = null">
+          <div class="model-bar-v2">
+            <div class="model-bar-fill" :style="{ width: barWidth(m.tokens) + '%', background: colorFor(m.model) }"></div>
+            <span class="model-name-v2">{{ m.model }}</span>
+          </div>
+          <span class="model-provider-v2">{{ m.provider }}</span>
+          <span class="model-calls-v2">{{ m.calls }} 次</span>
+          <span class="model-tokens-v2">{{ formatTokens(m.tokens) }}</span>
+          <span class="model-cost-v2">${{ m.cost.toFixed(4) }}</span>
+        </div>
+        <div class="model-row-v2 total-v2">
+          <div class="model-bar-v2"><div class="model-bar-fill" style="width:100%;background:var(--text-muted);opacity:0.3"></div><span class="model-name-v2" style="font-weight:600">合计</span></div>
+          <span class="model-provider-v2">—</span>
+          <span class="model-calls-v2">{{ all.calls }} 次</span>
+          <span class="model-tokens-v2">{{ formatTokens(all.tokens) }}</span>
+          <span class="model-cost-v2">${{ all.cost.toFixed(4) }}</span>
+        </div>
+      </div>
+      <div v-else class="empty-chart">暂无数据 — 开始使用 AI 后这里会显示各模型的用量分布</div>
     </div>
   </div>
 </template>
@@ -127,6 +127,8 @@ const daily = ref([])
 const range = ref('30d')
 const hovered = ref(null)
 const costHovered = ref(null)
+const modelHovered = ref(null)
+const totalModelTokens = computed(() => models.value.reduce((s, m) => s + m.tokens, 0) || 1)
 
 const ranges = [
   { key: '7d', label: '近 7 天' },
@@ -139,7 +141,9 @@ const maxDailyCost = computed(() => Math.max(0.0001, ...daily.value.map(d => d.c
 function barHeight(t) { return Math.max(2, (t / maxDailyTokens.value) * 100) }
 function costBarHeight(c) { return Math.max(2, (c / maxDailyCost.value) * 100) }
 function formatNum(n) { return n >= 1000 ? (n/1000).toFixed(0) + 'k' : n }
-const tooltipStyle = computed(() => ({})) // positioned via CSS
+function formatTokens(n) { return n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? (n/1000).toFixed(1)+'K' : n }
+function barWidth(t) { return Math.max(1, (t / totalModelTokens.value) * 100) }
+function colorFor(m) { const colors=['#4a6d7a','#3b82f6','#34d399','#f0a040','#e87c7c','#8b5cf6','#22d3ee','#f472b6']; let h=0; for(let i=0;i<m.length;i++)h=m.charCodeAt(i)+((h<<5)-h); return colors[Math.abs(h)%colors.length] } // positioned via CSS
 
 async function loadData() {
   try {
@@ -197,15 +201,19 @@ onMounted(loadData)
 .tooltip-row span:first-child { color: var(--text-secondary); }
 .tooltip-row span:last-child { color: var(--text-primary); font-weight: 500; }
 
-/* Model Table */
+/* Model Breakdown v2 */
 .model-section { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 16px; }
-.model-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.model-table th { padding: 8px 12px; text-align: left; color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border-color); }
-.model-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-color); }
-.model-name-cell { color: var(--text-primary); font-family: monospace; font-size: 12px; }
-.provider-tag { padding: 2px 6px; border-radius: 4px; background: var(--bg-secondary); color: var(--text-secondary); font-size: 11px; }
-.cost-cell { font-family: monospace; font-size: 12px; }
-.total-row td { border-bottom: none; color: var(--text-primary); }
+.model-breakdown-v2 { display: flex; flex-direction: column; gap: 2px; }
+.model-row-v2 { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-radius: var(--radius-sm); transition: background 0.15s; }
+.model-row-v2:hover { background: var(--bg-hover); }
+.model-bar-v2 { flex: 1; height: 24px; background: var(--bg-secondary); border-radius: 4px; position: relative; overflow: hidden; min-width: 150px; }
+.model-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; opacity: 0.6; }
+.model-name-v2 { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 12px; font-family: monospace; color: var(--text-primary); white-space: nowrap; }
+.model-provider-v2 { font-size: 11px; color: var(--text-muted); width: 60px; flex-shrink: 0; }
+.model-calls-v2 { font-size: 12px; color: var(--text-secondary); width: 50px; flex-shrink: 0; text-align: right; }
+.model-tokens-v2 { font-size: 12px; color: var(--text-primary); width: 70px; flex-shrink: 0; text-align: right; font-family: monospace; }
+.model-cost-v2 { font-size: 12px; color: var(--accent-amber); width: 80px; flex-shrink: 0; text-align: right; font-family: monospace; }
+.total-v2 { border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 4px; }
 .empty-chart { text-align: center; padding: 40px; color: var(--text-muted); font-size: 13px; }
 @media (max-width: 900px) { .stat-grid { grid-template-columns: 1fr; } .charts-row { grid-template-columns: 1fr; } }
 </style>

@@ -36,11 +36,13 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useAuthStore } from '../stores/auth'
 
 const isExpanded = ref(false)
+const authStore = useAuthStore()
 
-const navItems = [
+const allNavItems = [
   { path: '/dashboard', icon: '📊', label: '工作台' },
   { path: '/editor', icon: '✍️', label: '写作' },
   { path: '/characters', icon: '👤', label: '角色' },
@@ -49,8 +51,10 @@ const navItems = [
   { path: '/stats', icon: '📈', label: '统计' },
   { path: '/usage', icon: '📊', label: '用量' },
   { path: '/settings', icon: '⚙️', label: '设置' },
-  { path: '/admin', icon: '🔧', label: '管理' }
+  { path: '/admin', icon: '🔧', label: '管理', adminOnly: true }
 ]
+
+const navItems = computed(() => allNavItems.filter(item => !item.adminOnly || authStore.isAdmin))
 </script>
 
 <style scoped>

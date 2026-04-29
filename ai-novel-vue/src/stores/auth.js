@@ -9,7 +9,18 @@ export const useAuthStore = defineStore('auth', () => {
   const error = ref(null)
 
   const isLoggedIn = computed(() => !!getAuthToken())
-  const nickname = computed(() => user.value?.nickname || '')
+  const nickname = computed(() => user.value?.nickname || user.value?.username || '')
+  const isAdmin = computed(() => user.value?.isAdmin === true)
+
+  async function loadCurrentUser() {
+    if (!getAuthToken()) {
+      user.value = null
+      return null
+    }
+    const data = await authApi.me()
+    user.value = data
+    return data
+  }
 
   async function login({ email, password }) {
     loading.value = true
@@ -64,5 +75,18 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
   }
 
-  return { user, loading, error, isLoggedIn, nickname, login, register, loginWithLinuxDO, handleOAuthCallback, logout }
+  return {
+    user,
+    loading,
+    error,
+    isLoggedIn,
+    nickname,
+    isAdmin,
+    loadCurrentUser,
+    login,
+    register,
+    loginWithLinuxDO,
+    handleOAuthCallback,
+    logout,
+  }
 })

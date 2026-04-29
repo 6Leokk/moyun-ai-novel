@@ -5,7 +5,8 @@ import { z } from 'zod'
 import { getDb } from '../db/connection.ts'
 import { users, userAiPreferences } from '../db/schema.ts'
 import { signToken } from '../lib/jwt.ts'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, isNull } from 'drizzle-orm'
+import { SOLE_ADMIN_USERNAME, isSoleSiteAdmin } from '../lib/permissions.ts'
 
 // ── OAuth State Store ──
 const oauthStates = new Map<string, number>()
@@ -54,6 +55,10 @@ export function registerAuthRoutes(app: FastifyInstance) {
   app.post('/api/auth/register', async (request, reply) => {
     const body = registerSchema.parse(request.body)
     const db = getDb()
+    if (body.username.toLowerCase() === SOLE_ADMIN_USERNAME) {
+      reply.status(400).send({ error: '该用户名不可注册' })
+      return
+    }
 
     const existing = await db.select({ id: users.id })
       .from(users)
@@ -75,7 +80,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
     await db.insert(userAiPreferences).values({ userId: user.id })
 
     const token = signToken({ userId: user.id, email: user.email })
-    reply.status(201).send({ token, user: { id: user.id, email: user.email, username: user.username } })
+    reply.status(201).send({ token, user: { id: user.id, email: user.email, username: user.username, isAdmin: false, trustLevel: 0 } })
   })
 
   // POST /api/auth/login
@@ -85,7 +90,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
 
     const found = await db.select()
       .from(users)
-      .where(eq(users.email, body.email))
+      .where(and(eq(users.email, body.email), isNull(users.deletedAt)))
       .limit(1)
     if (found.length === 0) {
       reply.status(401).send({ error: '邮箱或密码错误' })
@@ -100,7 +105,16 @@ export function registerAuthRoutes(app: FastifyInstance) {
     }
 
     const token = signToken({ userId: user.id, email: user.email })
-    reply.send({ token, user: { id: user.id, email: user.email, username: user.username } })
+    reply.send({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        isAdmin: isSoleSiteAdmin(user),
+        trustLevel: user.trustLevel,
+      },
+    })
   })
 
   // GET /api/auth/me
@@ -114,13 +128,23 @@ export function registerAuthRoutes(app: FastifyInstance) {
       id: users.id,
       email: users.email,
       username: users.username,
-    }).from(users).where(eq(users.id, request.userId)).limit(1)
+      isAdmin: users.isAdmin,
+      trustLevel: users.trustLevel,
+      deletedAt: users.deletedAt,
+    }).from(users).where(and(eq(users.id, request.userId), isNull(users.deletedAt))).limit(1)
 
     if (found.length === 0) {
       reply.status(404).send({ error: '用户不存在' })
       return
     }
-    reply.send(found[0])
+    const user = found[0]
+    reply.send({
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      isAdmin: isSoleSiteAdmin(user),
+      trustLevel: user.trustLevel,
+    })
   })
 
   // ── Linux DO OAuth ──

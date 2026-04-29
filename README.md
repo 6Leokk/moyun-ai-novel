@@ -1,198 +1,267 @@
 <p align="center">
-  <h1 align="center">墨韵 AI</h1>
-  <p align="center">全栈 AI 小说创作 SaaS · Agent Loop 深度生成 · PG + SQLite 双层存储</p>
+  <img src="./ai-novel-vue/public/favicon.svg" width="88" height="88" alt="墨韵 AI Logo" />
+</p>
+
+<h1 align="center">墨韵 AI</h1>
+
+<p align="center">
+  面向长篇小说创作的全栈 AI 写作系统
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" />
-  <img src="https://img.shields.io/badge/types-0_errors-brightgreen?style=flat-square" />
-  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" />
-  <img src="https://img.shields.io/badge/Fastify-5-000?style=flat-square&logo=fastify&logoColor=white" />
-  <img src="https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vue.js&logoColor=white" />
-  <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white" />
+  <img src="https://img.shields.io/badge/Vue-3.5-4FC08D?style=flat-square&logo=vuedotjs&logoColor=white" alt="Vue 3.5" />
+  <img src="https://img.shields.io/badge/Fastify-5-000000?style=flat-square&logo=fastify&logoColor=white" alt="Fastify 5" />
+  <img src="https://img.shields.io/badge/TypeScript-5.8-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 5.8" />
+  <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16" />
+  <img src="https://img.shields.io/badge/SQLite-vec-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite vec" />
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker Compose" />
+  <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT License" />
 </p>
 
 ---
 
-## 是什么
+## ✨ 项目定位
 
-墨韵 AI 是一个全栈的 AI 小说创作助手。不是简单的「输入 prompt → 输出文本」，而是通过 **Agent Loop**（Planner→Writer→Critic→Editor）和 **向量长期记忆**（sqlite-vec），让 AI 理解数百章前的角色状态、伏笔和世界观。
+墨韵 AI 不是简单的「输入 prompt、返回正文」工具，而是围绕长篇小说的持续创作流程设计：它把大纲、角色、世界观、伏笔、章节和长期记忆放进同一个创作系统里，再通过 Agent Loop 完成规划、写作、审稿和修订。
 
-底层采用 **双层存储**：PostgreSQL 管 SaaS（用户/项目元数据/社区），SQLite 每项目一个文件（章节/角色/大纲/伏笔/记忆），导出即复制文件。
+项目采用 **PostgreSQL + SQLite 双层存储**：
 
----
+- **PostgreSQL** 保存 SaaS 侧数据，例如用户、项目、社区内容和用量统计。
+- **SQLite** 为每个小说项目保存独立文件，承载章节、大纲、角色、伏笔、世界观和向量记忆。
 
-## 架构
+这种设计让平台数据和作品数据边界清晰，也让单个项目具备更好的隔离、迁移和导出能力。
 
-```
-                         ┌─────────────────────────────┐
- 浏览器                    │       PostgreSQL             │
-  │  Vue 3 SPA            │  用户 · 项目 · 社区 · 成本    │
-  │  HTTP / SSE           └─────────────┬───────────────┘
-  ▼                                     │
-┌──────────┐                            │
-│ Fastify  │────────────────────────────┘
-│   API    │
-└────┬─────┘
-     │
-     ├──── POST /api/chapters/:id/generate        ← 快速模式
-     │     POST /api/chapters/:id/generate-agent  ← 深度模式
-     │
-     ▼
-┌──────────────────────────────────────────┐
-│         Agent Orchestrator                │
-│                                           │
-│  Planner                                 │
-│    输入: 大纲 + 角色 + 世界观 + 前章 + 伏笔  │
-│    输出: { scenes[], tone, constraints }  │
-│     │                                     │
-│  Writer                                  │
-│    tool_use 循环 ← 9 个固定工具            │
-│    SSE 流式输出正文                        │
-│     │                                     │
-│  Critic                                   │
-│    检查: 角色一致性 · 伏笔推进 · 字数       │
-│    输出: { severity, issues[] }           │
-│     │                                     │
-│  Editor                                   │
-│    自动修复 medium 级问题                  │
-│    ↑ 修复后 Re-Critic 再审                 │
-│                                           │
-└──────────────────┬───────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────┐
-│         SQLite (每项目一个文件)            │
-│                                           │
-│  chapters · outlines · characters        │
-│  foreshadows · careers · world_settings   │
-│  memories · vec0 (向量索引)               │
-│                                           │
-│  物理隔离: 文件路径含 project UUID         │
-│  导出: 复制文件即可                        │
-│  向量: sqlite-vec 同文件检索              │
-└──────────────────────────────────────────┘
+## 🧩 核心能力
+
+| 能力 | 说明 |
+| --- | --- |
+| 快速写作 | 续写、润色、扩写、重写，支持 SSE 流式返回 |
+| 深度生成 | Planner、Writer、Critic、Editor 四阶段 Agent Loop |
+| 长期记忆 | 基于 sqlite-vec 的跨章节语义检索 |
+| 内容管理 | 大纲、角色、伏笔、世界观、职业体系统一维护 |
+| 社区功能 | Prompt 工坊、写作风格、灵感生成 |
+| 管理后台 | 用户管理、项目审查、工坊审核、用量统计 |
+
+## 🏗️ 系统架构
+
+```text
+┌─────────────────────┐
+│      Vue 3 SPA       │
+│  编辑器 / 项目 / 社区 │
+└──────────┬──────────┘
+           │ HTTP / SSE
+           ▼
+┌─────────────────────┐
+│     Fastify API      │
+│  Auth / Project / AI │
+└──────┬────────┬──────┘
+       │        │
+       │        ▼
+       │  ┌─────────────────────┐
+       │  │   Agent Runtime      │
+       │  │ Plan / Write / Check │
+       │  └──────────┬──────────┘
+       │             │
+       ▼             ▼
+┌──────────────┐  ┌─────────────────────┐
+│ PostgreSQL   │  │ Project SQLite File  │
+│ SaaS 数据     │  │ 作品数据 + 向量记忆   │
+└──────────────┘  └─────────────────────┘
 ```
 
-### 数据隔离
+### 存储边界
 
-| 层 | 存储 | 隔离方式 |
-|----|------|---------|
-| SaaS | PostgreSQL | `WHERE user_id` · `JOIN projects.userId` |
-| 写作 | SQLite | 文件路径含 UUID · 打开即隔离 · 无 user_id 列 |
+| 层级 | 数据 | 隔离方式 |
+| --- | --- | --- |
+| SaaS 层 | 用户、项目元数据、社区、用量 | PostgreSQL 行级关联，按 `user_id` / `project_id` 查询 |
+| 创作层 | 章节、大纲、角色、伏笔、世界观、记忆 | 每个项目一个 SQLite 文件，文件路径包含项目 UUID |
+| 检索层 | 语义记忆、章节片段、角色设定 | sqlite-vec 与项目数据同文件存储 |
 
-### Agent 状态机
+## 🤖 Agent 生成流程
 
-```
-queued → running → cancelling → cancelled
-              → completed
-              → failed
-              → interrupted → running / failed
-              → needs_manual_review → completed / failed
-```
-
----
-
-## 功能
-
-### AI 写作
-- **快速模式** — 续写/润色/扩写/重写，SSE 流式输出
-- **深度模式** — Agent 四阶段生成，9 个固定工具，tool_use 循环
-- **审稿修复** — Critic 检查一致性 → Editor 自动修复中等问题
-- **可恢复** — 取消/重启/重连 SSE 流
-
-### 内容系统
-- **大纲** — 树形结构 + 拖拽排序 + AI 批量扩展 + 4 视图
-- **角色** — 完整档案（性格/外貌/背景/关系/职业阶段）
-- **伏笔** — planted→hinted→resolved 状态追踪
-- **世界观** — 设定 + 条目管理
-- **职业体系** — 自定义等级系统 + 角色分配
-
-### 向量记忆
-- sqlite-vec 向量检索，跨章节语义搜索
-- 角色设定/大纲导出记忆权重 2x，防止 AI 风格趋同
-- 章节重写自动标记旧记忆 superseded
-
-### 社区
-- **Prompt 工坊** — 浏览/搜索/一键导入模板
-- **写作风格** — 自定义 + 项目默认
-- **灵感模式** — AI 基于上下文批量生成创意
-
-### 管理
-- **用量统计** — 日柱状图（hover 详情）+ 按模型/提供商分布
-- **管理面板** — 用户管理 + 项目审查 + 工坊审核 + 数据库迁移
-
-### 主题
-5 主题 CSS 变量驱动：`light` · `dark` · `midnight` · `forest` · `warm`
-
----
-
-## 快速开始
-
-**前置依赖**：Node.js 20+ · PostgreSQL 16+
-
-```bash
-# 数据库
-sudo -u postgres psql -c "CREATE USER moyun WITH PASSWORD 'moyun' CREATEDB;"
-sudo -u postgres psql -c "CREATE DATABASE moyun OWNER moyun;"
-
-# 后端
-cd ai-novel-backend && cp .env.example .env && npm install
-npx drizzle-kit push && npx tsx src/db/seed && npm run dev
-
-# 前端
-cd ai-novel-vue && npm install && npm run dev
+```text
+用户触发深度生成
+      │
+      ▼
+Planner
+读取大纲、角色、世界观、前文和伏笔，生成章节计划
+      │
+      ▼
+Writer
+通过固定工具读取项目上下文，并以 SSE 流式输出正文
+      │
+      ▼
+Critic
+检查角色一致性、伏笔推进、上下文衔接和字数约束
+      │
+      ▼
+Editor
+自动修复中等严重度问题，必要时重新进入 Critic
 ```
 
-**演示账号** `demo@example.com` / `123456`
+Agent Run 状态流转：
 
-### Docker
-
-```bash
-export DB_PASSWORD=xxx JWT_SECRET=xxx ENCRYPTION_KEY=xxx
-docker compose up -d
+```text
+queued -> running -> completed
+                  -> failed
+                  -> cancelling -> cancelled
+                  -> interrupted -> running / failed
+                  -> needs_manual_review -> completed / failed
 ```
 
----
+## 🛠️ 技术栈
 
-## 技术栈
-
-| 层 | 技术 |
-|----|------|
-| 后端框架 | Fastify 5 · TypeScript |
-| ORM | Drizzle ORM (PG + SQLite 双驱动) |
-| 数据库 | PostgreSQL 16 + SQLite (better-sqlite3) |
-| 向量搜索 | sqlite-vec (vec0 虚拟表) |
-| AI 提供商 | OpenAI · Anthropic · Gemini |
-| 嵌入模型 | text-embedding-3-small |
-| 前端 | Vue 3 · Pinia · Vite |
-| 样式 | CSS 变量 · 5 主题 |
-| 测试 | Vitest · 69 单元测试 |
+| 模块 | 技术 |
+| --- | --- |
+| 前端 | Vue 3.5、Vue Router、Pinia、Vite |
+| 后端 | Fastify 5、TypeScript、Zod |
+| 主数据库 | PostgreSQL、Drizzle ORM |
+| 项目数据库 | SQLite、better-sqlite3、sqlite-vec |
+| AI 接入 | OpenAI、Anthropic、Gemini |
+| 流式输出 | Server-Sent Events |
+| 测试 | Vitest |
 | 部署 | Docker Compose |
 
----
+## 🚀 快速开始
 
-## 项目结构
+前置依赖：
 
-```
-ai-novel-backend/       # 主后端
-  src/routes/           # 18 个 API（auth/projects/chapter-ai/agent-runs/admin...）
-  src/services/         # Agent 编排 · 工具 · 记忆 · AI
-  src/db/               # PG schema + SQLite 管理
-  src/workers/          # 后处理队列
-ai-novel-vue/           # 前端
-  src/views/            # 10 个页面
-  src/components/       # 13 个组件
-  src/stores/           # 5 个 Pinia store
-docker-compose.yml      # 一键部署
+- Node.js 20+
+- PostgreSQL 16+
+- npm
+
+创建数据库：
+
+```bash
+sudo -u postgres psql -c "CREATE USER moyun WITH PASSWORD 'moyun' CREATEDB;"
+sudo -u postgres psql -c "CREATE DATABASE moyun OWNER moyun;"
 ```
 
----
+启动后端：
 
-## Author
+```bash
+cd ai-novel-backend
+cp .env.example .env
+npm install
+npx drizzle-kit push
+npx tsx src/db/seed
+npm run dev
+```
 
-**[6Leokk](https://github.com/6Leokk)**
+启动前端：
 
-## License
+```bash
+cd ai-novel-vue
+npm install
+npm run dev
+```
 
-MIT
+演示账号：
+
+```text
+demo@example.com / 123456
+```
+
+## 📦 部署
+
+前端 API 默认使用同源 `/api`，因此生产环境建议把前端静态资源和后端 API 放在同一个域名下，通过 Nginx、Caddy 或网关将 `/api` 反向代理到后端服务。
+
+### 直接部署
+
+适合已有服务器、数据库和进程管理工具的场景。
+
+后端：
+
+```bash
+cd ai-novel-backend
+cp .env.example .env
+npm ci
+npm run db:push
+ADMIN_PASSWORD='your-secure-admin-password' npx tsx src/db/seed.ts
+npm run build
+npm run start
+```
+
+> 部署前必须把 `ADMIN_PASSWORD` 改成你自己的强密码，并妥善保存。管理员密码不会写进代码；seed 脚本只会读取环境变量来创建或更新唯一管理员账号。
+
+生产环境至少需要检查这些变量：
+
+```env
+DATABASE_URL=postgres://moyun:your-password@127.0.0.1:5432/moyun
+JWT_SECRET=replace-with-a-random-string-at-least-32-chars
+ENCRYPTION_KEY=replace-with-exactly-32-bytes-key
+NODE_ENV=production
+ALLOWED_ORIGINS=https://your-domain.com
+PROJECTS_DATA_DIR=/var/lib/moyun/projects
+ADMIN_EMAIL=admin@your-domain.com
+ADMIN_PASSWORD=your-secure-admin-password
+```
+
+系统只保留一个管理员账号：`admin`。`trustLevel` 只表示普通用户等级和免费 token 档位，不会授予后台管理权限。
+
+前端：
+
+```bash
+cd ai-novel-vue
+npm ci
+npm run build
+```
+
+将 `ai-novel-vue/dist` 部署为静态站点，并配置反向代理：
+
+```nginx
+location / {
+  try_files $uri $uri/ /index.html;
+}
+
+location /api/ {
+  proxy_pass http://127.0.0.1:3000/api/;
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+### Docker 部署
+
+适合快速拉起 PostgreSQL 和后端服务的场景。当前 `docker-compose.yml` 包含 PostgreSQL 与后端，前端仍需要按“直接部署”的方式构建并发布静态资源。
+
+```bash
+export DB_PASSWORD=replace-with-strong-password
+export JWT_SECRET=replace-with-a-random-string-at-least-32-chars
+export ENCRYPTION_KEY=replace-with-exactly-32-bytes-key
+export ADMIN_EMAIL=admin@your-domain.com
+export ADMIN_PASSWORD=your-secure-admin-password
+docker compose up -d
+docker compose exec backend npx tsx src/db/seed.ts
+```
+
+> Docker 部署同样需要先替换 `ADMIN_PASSWORD`。如果后续要修改管理员密码，重新设置该环境变量后再执行一次 `docker compose exec backend npx tsx src/db/seed.ts`。
+
+如需持久化每个项目的 SQLite 文件，建议在 Compose 中为后端增加数据卷，并设置 `PROJECTS_DATA_DIR` 指向该挂载目录。
+
+## 📁 项目结构
+
+```text
+ai-novel-backend/
+  src/app.ts              # Fastify 应用入口
+  src/routes/             # Auth、Project、Chapter AI、Agent Runs、Admin 等 API
+  src/services/           # Agent 编排、AI 接入、工具调用、记忆系统
+  src/db/                 # PostgreSQL schema 与 SQLite 项目库管理
+  src/workers/            # 后处理任务
+
+ai-novel-vue/
+  src/views/              # 页面视图
+  src/components/         # 业务组件
+  src/stores/             # Pinia 状态
+  src/api/                # API 客户端
+  public/favicon.svg      # 项目标识
+
+docker-compose.yml        # 本地容器化部署
+```
+
+## 📄 协议
+
+本项目采用 MIT 协议，详见 [LICENSE](./LICENSE)。

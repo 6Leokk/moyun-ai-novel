@@ -3,14 +3,20 @@ import { z } from 'zod'
 import { getDb } from '../db/connection'
 import { users, projects, agentRuns, promptTemplates, generationHistory, postProcessingTasks, llmCallLogs } from '../db/schema'
 import { eq, sql, count, desc, and, isNull, inArray } from 'drizzle-orm'
+import { canManageUserPermissions, isSoleSiteAdmin } from '../lib/permissions'
 
 async function requireAdmin(userId: string | undefined): Promise<boolean> {
   if (!userId) return false
   const db = getDb()
-  const u = await db.select({ isAdmin: users.isAdmin, trustLevel: users.trustLevel })
+  const u = await db.select({
+    username: users.username,
+    isAdmin: users.isAdmin,
+    trustLevel: users.trustLevel,
+    deletedAt: users.deletedAt,
+  })
     .from(users).where(eq(users.id, userId)).limit(1)
   if (u.length === 0) return false
-  return u[0].isAdmin === true || (u[0].trustLevel ?? 0) >= 3
+  return isSoleSiteAdmin(u[0])
 }
 
 export function registerAdminRoutes(app: FastifyInstance) {
@@ -71,6 +77,18 @@ export function registerAdminRoutes(app: FastifyInstance) {
     const schema = z.object({ trustLevel: z.number().min(-1).max(3).optional(), isAdmin: z.boolean().optional() })
     const body = schema.parse(request.body)
     const db = getDb()
+    const target = await db.select({ id: users.id, username: users.username })
+      .from(users).where(eq(users.id, id)).limit(1)
+    if (target.length === 0) { reply.status(404).send({ error: '用户不存在' }); return }
+    if (!canManageUserPermissions({
+      actorId: request.userId!,
+      targetId: id,
+      targetUsername: target[0].username,
+      updates: body,
+    })) {
+      reply.status(403).send({ error: '不允许执行该权限变更' })
+      return
+    }
     const updates: Record<string, unknown> = {}
     if (body.trustLevel !== undefined) updates.trustLevel = body.trustLevel
     if (body.isAdmin !== undefined) updates.isAdmin = body.isAdmin
@@ -82,7 +100,20 @@ export function registerAdminRoutes(app: FastifyInstance) {
     if (!await requireAdmin(request.userId)) { reply.status(403).send({ error: '无权访问' }); return }
     const { id } = request.params as { id: string }
     const db = getDb()
-    await db.update(users).set({ deletedAt: new Date() } as any).where(eq(users.id, id))
+    const target = await db.select({ id: users.id, username: users.username })
+      .from(users).where(eq(users.id, id)).limit(1)
+    if (target.length === 0) { reply.status(404).send({ error: '用户不存在' }); return }
+    const deletedAt = new Date()
+    if (!canManageUserPermissions({
+      actorId: request.userId!,
+      targetId: id,
+      targetUsername: target[0].username,
+      updates: { deletedAt },
+    })) {
+      reply.status(403).send({ error: '不允许禁用唯一管理员' })
+      return
+    }
+    await db.update(users).set({ deletedAt } as any).where(eq(users.id, id))
     reply.send({ success: true })
   })
 

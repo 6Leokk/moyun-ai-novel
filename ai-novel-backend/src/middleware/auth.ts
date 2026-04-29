@@ -1,8 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { verifyToken, JwtPayload } from '../lib/jwt.ts'
 import { getDb } from '../db/connection.ts'
-import { projects } from '../db/schema.ts'
-import { eq } from 'drizzle-orm'
+import { projects, users } from '../db/schema.ts'
+import { and, eq, isNull } from 'drizzle-orm'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -40,6 +40,15 @@ export function registerAuthMiddleware(app: FastifyInstance) {
     try {
       const token = authHeader.slice(7)
       const payload: JwtPayload = verifyToken(token)
+      const db = getDb()
+      const activeUser = await db.select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)))
+        .limit(1)
+      if (activeUser.length === 0) {
+        reply.status(401).send({ error: '用户不存在或已被禁用' })
+        return
+      }
       request.userId = payload.userId
       request.userEmail = payload.email
     } catch {
