@@ -5,10 +5,12 @@
  * Start: tsx src/workers/post-processor.ts
  */
 
+import crypto from 'crypto'
 import { getDb } from '../db/connection'
 import { postProcessingTasks, projects } from '../db/schema'
 import { eq, and, sql, lt, or, isNull } from 'drizzle-orm'
 import { projectDBManager } from '../db/sqlite/manager'
+import { AIService } from '../services/ai/service'
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`
 const POLL_INTERVAL_MS = 2000
@@ -97,18 +99,31 @@ async function executeTask(task: Task): Promise<void> {
   try {
     // Placeholder: actual task logic in Phase 2
     switch (task.taskType) {
-      case 'extract_summary':
-        // TODO: AI extraction
+      case 'extract_summary': {
+        const db = projectDBManager.open(task.projectId)
+        const ch = db.prepare('SELECT content FROM chapters WHERE id = ?').get(task.chapterId) as any
+        if (ch?.content) {
+          const ai = new AIService({ userId: '', projectId: task.projectId })
+          const result = await ai.generateJSON<{ summary: string }>({ prompt: '提取本章100-200字摘要。只返回JSON: {"summary":"..."}\n\n章节:' + ch.content.slice(0, 5000), temperature: 0.3 })
+          if (result?.summary) db.prepare('UPDATE chapters SET summary=?, summary_status=? WHERE id=?').run(result.summary, 'ready', task.chapterId)
+        }
         break
-      case 'extract_memories':
-        // TODO: AI extraction
+      }
+      case 'extract_memories': {
+        const db = projectDBManager.open(task.projectId)
+        const ch = db.prepare('SELECT content FROM chapters WHERE id = ?').get(task.chapterId) as any
+        if (ch?.content) {
+          const ai = new AIService({ userId: '', projectId: task.projectId })
+          const result = await ai.generateJSON<Array<{ title: string; content: string; category: string }>>({ prompt: '提取3-5个关键记忆。返回JSON数组:[{"title":"","content":"","category":"plot_event|character_state|foreshadow"}...]\n\n章节:' + ch.content.slice(0, 5000), temperature: 0.3 })
+          if (Array.isArray(result)) {
+            const insert = db.prepare('INSERT INTO memories (id,chapter_id,category,title,content,importance,source_type,weight,status) VALUES (?,?,?,?,?,5,\'extracted\',1.0,\'active\')')
+            for (const m of result) insert.run(crypto.randomUUID(), task.chapterId, m.category, m.title, m.content)
+          }
+        }
         break
-      case 'embed_memories':
-        // TODO: Embedding API
-        break
-      case 'update_character_states':
-        // TODO: Character state update
-        break
+      }
+      case 'embed_memories': break  // Phase 2: OpenAI embeddings API
+      case 'update_character_states': break  // Phase 2: AI character state analysis
     }
 
     await db.update(postProcessingTasks).set({

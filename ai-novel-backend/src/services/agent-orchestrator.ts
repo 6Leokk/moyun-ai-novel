@@ -59,6 +59,10 @@ export class AgentOrchestrator {
     const plan = await this.runPlanner(mode)
     if (!plan) throw new Error('Planner 失败')
 
+    // Planner review checkpoint: emit plan for user review
+    this.emit('agent:plan_ready', { plan, runId: this.runId })
+    // Continue automatically after brief pause (user can skip review in future)
+
     await this.saveCheckpoint({ phase: 'planning', plan })
 
     // ── Phase 2: Writer ──
@@ -99,15 +103,12 @@ export class AgentOrchestrator {
     await this.emitPhase('reviewing', 'started', '正在审稿...')
     let issues = await this.runCritic(content, plan)
 
-    // ── Phase 3b: Editor (auto-fix medium severity issues) ──
-    const mediumIssues = issues.filter((i: any) => i.severity === 'medium')
-    if (mediumIssues.length > 0) {
-      await this.emitPhase('editing', 'started', '正在自动修复审稿意见...')
+    // ── Phase 3b: Editor → Re-Critic loop (max 2 rounds) ──
+    for (let round = 0; round < 2; round++) {
+      const mediumIssues = issues.filter((i: any) => i.severity === 'medium')
+      if (mediumIssues.length === 0) break
+      await this.emitPhase('editing', 'started', `自动修复中 (第${round + 1}轮)...`)
       content = await this.runEditor(content, mediumIssues)
-    }
-
-    // ── Phase 3c: Re-Critic after edit ──
-    if (mediumIssues.length > 0) {
       issues = await this.runCritic(content, plan)
     }
 
@@ -241,12 +242,23 @@ export class AgentOrchestrator {
       worldTool?.execute({}, this.ctx) ?? null,
     ])
 
+    // Search vector memory for Planner
+    const memTool = findTool('searchMemory')
+    let relevantMemories = null
+    if (memTool) {
+      try {
+        const mems = await memTool.execute({ query: (outlines as any)?.title || (outlines as any)?.expansion_plan || '章节规划', limit: 5 }, this.ctx)
+        relevantMemories = memTool.summarizeForAI(mems)
+      } catch { /* memory search optional */ }
+    }
+
     return JSON.stringify({
       prevChapter: prevTool?.summarizeForAI(prev),
       outline: outlines ? { title: (outlines as any).title, expansionPlan: (outlines as any).expansion_plan } : null,
       characters: charTool?.summarizeForAI(chars),
       foreshadows: fsTool?.summarizeForAI(fs),
       worldRules: worldTool?.summarizeForAI(world),
+      relevantMemories,
     })
   }
 
