@@ -5,8 +5,10 @@ import { getDb } from '../db/connection.ts'
 import {
   projects, chapters, characters, outlines, worldSettings, worldEntries,
   foreshadows, careers, characterRelationships, projectDefaultStyles, writingStyles,
+  userAiKeys,
 } from '../db/schema.ts'
 import { eq, and, sql } from 'drizzle-orm'
+import { ProjectPathResolver } from '../utils/project-path.ts'
 
 export function registerProjectRoutes(app: FastifyInstance) {
   const createSchema = z.object({
@@ -80,7 +82,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
       const { projectDBManager } = await import('../db/sqlite/manager')
       projectDBManager.initNew(projectId)
 
-      const sqlitePath = `/data/projects/${projectId}/data.db`
+      const sqlitePath = ProjectPathResolver.getDBPath(projectId)
       await db.update(projects).set({
         sqliteStatus: 'ready',
         sqlitePath,
@@ -145,7 +147,14 @@ export function registerProjectRoutes(app: FastifyInstance) {
     if (body.narrativePerspective !== undefined) updateData.narrativePerspective = body.narrativePerspective
     if (body.maxWordsPerChapter !== undefined) updateData.maxWordsPerChapter = body.maxWordsPerChapter
     if (body.outlineMode !== undefined) updateData.outlineMode = body.outlineMode
-    if (body.aiKeyId !== undefined) updateData.aiKeyId = body.aiKeyId
+    if (body.aiKeyId !== undefined) {
+      // Verify key belongs to user
+      const key = await db.select({ id: userAiKeys.id }).from(userAiKeys)
+        .where(and(eq(userAiKeys.id, body.aiKeyId as any), eq(userAiKeys.userId, request.userId!)))
+        .limit(1)
+      if (key.length === 0) { reply.status(400).send({ error: 'API key 不属于当前用户' }); return }
+      updateData.aiKeyId = body.aiKeyId
+    }
     if (body.aiModel !== undefined) updateData.aiModel = body.aiModel
 
     const updated = await db.update(projects)
@@ -537,7 +546,36 @@ export function registerProjectRoutes(app: FastifyInstance) {
     }
   })
 
-  // GET /api/projects/:id/export-zip — Export project as zip
+
+  // GET /api/projects/:id/export-db — Download SQLite file directly
+  app.get('/api/projects/:id/export-db', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const db = getDb()
+
+    const proj = await db.select().from(projects)
+      .where(and(eq(projects.id, id), eq(projects.userId, request.userId!)))
+      .limit(1)
+    if (proj.length === 0) { reply.status(404).send({ error: '项目不存在' }); return }
+
+    const p = proj[0]
+    if (p.storageBackend !== 'sqlite' || !p.sqlitePath) {
+      reply.status(400).send({ error: '仅 SQLite 项目支持此导出方式，请先迁移' }); return
+    }
+
+    const fs = await import('fs')
+    const path = await import('path')
+    const dbPath = ProjectPathResolver.getDBPath(id)
+    if (!fs.existsSync(dbPath)) {
+      reply.status(404).send({ error: '数据库文件不存在' }); return
+    }
+
+    const stream = fs.createReadStream(dbPath)
+    reply.header('Content-Type', 'application/octet-stream')
+    reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(p.title)}.db"`)
+    reply.send(stream)
+  })
+
+  // GET /api/projects/:id/export-zip — Download project as zip (metadata.json + data.db)
   app.get('/api/projects/:id/export-zip', async (request, reply) => {
     const { id } = request.params as { id: string }
     const db = getDb()
@@ -548,16 +586,29 @@ export function registerProjectRoutes(app: FastifyInstance) {
     if (proj.length === 0) { reply.status(404).send({ error: '项目不存在' }); return }
 
     const p = proj[0]
+    const archiver = (await import('archiver')).default
+    const archive = archiver('zip', { zlib: { level: 9 } })
 
-    // Export metadata JSON
-    const pkg = {
-      version: '1.0',
-      exportedAt: new Date().toISOString(),
+    reply.header('Content-Type', 'application/zip')
+    reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(p.title)}-project.zip"`)
+
+    archive.on('error', () => { reply.raw.end() })
+
+    // Add metadata.json
+    archive.append(JSON.stringify({
+      version: '1.0', exportedAt: new Date().toISOString(),
       project: { title: p.title, genre: p.genre, theme: p.theme, description: p.description, narrativePerspective: p.narrativePerspective, maxWordsPerChapter: p.maxWordsPerChapter, outlineMode: p.outlineMode },
+    }, null, 2), { name: 'metadata.json' })
+
+    // Add SQLite file if available
+    const fs = await import('fs')
+    const path = await import('path')
+    const dbPath = ProjectPathResolver.getDBPath(id)
+    if (fs.existsSync(dbPath)) {
+      archive.file(dbPath, { name: 'data.db' })
     }
 
-    reply.header('Content-Type', 'application/json; charset=utf-8')
-    reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(p.title)}-export.json"`)
-    reply.send(JSON.stringify(pkg, null, 2))
+    archive.finalize()
+    reply.send(archive)
   })
 }

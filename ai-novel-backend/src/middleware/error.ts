@@ -1,7 +1,7 @@
-import { FastifyInstance } from 'fastify'
+import { FastifyInstance, FastifyError } from 'fastify'
 
 export function registerErrorHandler(app: FastifyInstance) {
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error: FastifyError, _request, reply) => {
     console.error(error)
 
     // Zod validation errors
@@ -14,8 +14,8 @@ export function registerErrorHandler(app: FastifyInstance) {
     }
 
     // Fastify built-in errors
-    if ('statusCode' in error) {
-      reply.status(error.statusCode as number).send({
+    if (error.statusCode) {
+      reply.status(error.statusCode).send({
         error: error.message,
       })
       return

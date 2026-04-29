@@ -33,6 +33,8 @@ export const users = pgTable('users', {
   oauthExpires: timestamp('oauth_expires', { withTimezone: true }),
   avatarUrl: text('avatar_url'),
   emailVerified: boolean('email_verified').notNull().default(false),
+  isAdmin: boolean('is_admin').notNull().default(false),
+  trustLevel: smallint('trust_level').notNull().default(0),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

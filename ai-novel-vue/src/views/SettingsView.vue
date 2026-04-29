@@ -718,6 +718,7 @@ const navItems = [
   { key: 'prompts', icon: '📋', label: 'Prompt 模板', bg: 'rgba(130,100,160,0.12)' },
   { key: 'workshop', icon: '🏪', label: '提示词工坊', bg: 'rgba(200,140,60,0.12)' },
   { key: 'analyze', icon: '🔍', label: '拆书分析', bg: 'rgba(180,70,90,0.12)' },
+  { key: 'careers', icon: '⚔️', label: '职业体系', bg: 'rgba(140,100,60,0.12)' },
   { key: 'storage', icon: '💾', label: '存储与导出', bg: 'rgba(43,110,165,0.12)' },
   { key: 'shortcuts', icon: '⌨️', label: '快捷键', bg: 'rgba(154,107,30,0.12)' },
   { key: 'stats', icon: '📊', label: '写作统计', bg: 'rgba(16,185,129,0.12)' }

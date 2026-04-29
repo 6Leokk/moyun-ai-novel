@@ -1,6 +1,6 @@
 import { getDb } from '../../db/connection.ts'
-import { userAiKeys, userAiPreferences, projects, generationHistory } from '../../db/schema.ts'
-import { eq } from 'drizzle-orm'
+import { userAiKeys, userAiPreferences, projects, generationHistory, llmCallLogs } from '../../db/schema.ts'
+import { eq, and } from 'drizzle-orm'
 import { decryptApiKey } from '../../utils/crypto.ts'
 import { OpenAIClient } from './clients/openai.ts'
 import { AnthropicClient } from './clients/anthropic.ts'
@@ -62,7 +62,7 @@ export class AIService {
       if (proj.length > 0 && proj[0].aiKeyId) {
         const key = await db.select()
           .from(userAiKeys)
-          .where(eq(userAiKeys.id, proj[0].aiKeyId))
+          .where(and(eq(userAiKeys.id, proj[0].aiKeyId), eq(userAiKeys.userId, this.userId)))
           .limit(1)
 
         if (key.length > 0) {
@@ -95,9 +95,11 @@ export class AIService {
     // Get API key for this provider
     const keys = await db.select()
       .from(userAiKeys)
-      .where(eq(userAiKeys.userId, this.userId))
-      .where(eq(userAiKeys.provider, this.provider as any))
-      .where(eq(userAiKeys.isDefault, true))
+      .where(and(
+        eq(userAiKeys.userId, this.userId),
+        eq(userAiKeys.provider, this.provider as any),
+        eq(userAiKeys.isDefault, true),
+      ))
       .limit(1)
 
     if (keys.length > 0) {
@@ -174,6 +176,23 @@ export class AIService {
         status: params.status,
         errorMsg: params.errorMsg || null,
       } as any)
+
+      try {
+        await db.insert(llmCallLogs).values({
+          projectId: params.projectId || this.projectId || null,
+          chapterId: params.chapterId || null,
+          phase: params.genType,
+          provider: this.provider,
+          model,
+          requestType: 'chat',
+          inputTokens: params.usage?.promptTokens ?? 0,
+          outputTokens: params.usage?.completionTokens ?? 0,
+          estimatedCost: cost !== undefined ? String(cost) : '0',
+          latencyMs: params.durationMs,
+          status: params.status,
+          errorCode: params.errorCategory || null,
+        } as any);
+      } catch (e: any) { console.error("llm_call_logs insert failed:", e.message) }
     } catch (e) {
       console.warn('Failed to record generation history:', e)
     }
@@ -214,6 +233,78 @@ export class AIService {
       }).catch(() => {})
 
       throw new AIError(category, e.message, this.provider, e.status)
+    }
+  }
+
+  async *generateWithTools(params: GenerateParams & { tools?: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>; onToolCall?: (name: string, args: any) => Promise<any> }, genType = 'tool_generation'): AsyncGenerator<{ type: 'chunk' | 'tool_call' | 'tool_result'; text?: string; tool?: string; args?: any; result?: any }> {
+    await this.init()
+    const provider = this.createProvider()
+    const start = Date.now()
+    let totalText = ''
+
+    try {
+      if (!params.tools || params.tools.length === 0 || !params.onToolCall) {
+        // Fallback: plain stream without tools
+        for await (const chunk of provider.generateStream({
+          prompt: params.prompt,
+          model: params.model || this.model,
+          temperature: params.temperature ?? this.temperature,
+          maxTokens: params.maxTokens ?? this.maxTokens,
+          systemPrompt: params.systemPrompt,
+        })) {
+          totalText += chunk
+          yield { type: 'chunk', text: chunk }
+        }
+      } else {
+        // Tool-use loop: prompt-based function calling via JSON
+        const toolDefs = params.tools.map(t => `- ${t.name}: ${t.description} (args: ${JSON.stringify(t.input_schema)})`).join('\n')
+        const toolPrompt = `${params.prompt}\n\n你可以调用以下工具获取信息。需要调用时，输出JSON格式: {"tool":"工具名","args":{...}}，调用结果会返回给你。\n\n可用工具：\n${toolDefs}`
+
+        let currentPrompt = toolPrompt
+        let maxIterations = 10
+
+        while (maxIterations-- > 0) {
+          const result = await this.generateText({
+            prompt: currentPrompt,
+            systemPrompt: params.systemPrompt,
+            temperature: params.temperature,
+            model: params.model,
+            maxTokens: params.maxTokens,
+          })
+
+          const text = result.content
+          // Check for tool call in response
+          const toolMatch = text.match(/\{"tool"\s*:\s*"([^"]+)"\s*,\s*"args"\s*:\s*(\{[^}]+\})\s*\}/)
+
+          if (toolMatch) {
+            const toolName = toolMatch[1]
+            try {
+              const args = JSON.parse(toolMatch[2])
+              yield { type: 'tool_call', tool: toolName, args }
+
+              const toolResult = await params.onToolCall(toolName, args)
+              yield { type: 'tool_result', tool: toolName, result: toolResult }
+
+              // Append result and continue
+              currentPrompt = `${params.prompt}\n\n工具调用: ${toolName}\n结果: ${JSON.stringify(toolResult)}\n\n请继续写作。`
+            } catch { break }
+          } else {
+            // No tool call, this is the final text
+            totalText = text
+            yield { type: 'chunk', text }
+            break
+          }
+        }
+      }
+
+      const duration = Date.now() - start
+      const estimatedTokens = Math.round(totalText.length / 2)
+      this.recordHistory({ genType, durationMs: duration, usage: { promptTokens: 0, completionTokens: estimatedTokens }, status: 'success' }).catch(() => {})
+    } catch (e: any) {
+      const category = this.classifyError(e)
+      const duration = Date.now() - start
+      this.recordHistory({ genType, durationMs: duration, status: 'error', errorCategory: category, errorMsg: e.message }).catch(() => {})
+      throw e
     }
   }
 

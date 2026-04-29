@@ -263,4 +263,46 @@ export function registerAuthRoutes(app: FastifyInstance) {
       reply.redirect(`${cfg.frontendUrl}/login?error=${encodeURIComponent('登录失败: ' + e.message)}`)
     }
   })
+
+  // POST /api/auth/send-verification
+  app.post('/api/auth/send-verification', async (request, reply) => {
+    if (!request.userId) { reply.status(401).send({ error: '未登录' }); return }
+    const db = getDb()
+    const found = await db.select({ email: users.email }).from(users).where(eq(users.id, request.userId)).limit(1)
+    if (found.length === 0) { reply.status(404).send({ error: '用户不存在' }); return }
+    const { EmailService } = await import('../services/email-service')
+    await EmailService.sendVerificationEmail(request.userId, found[0].email)
+    reply.send({ message: '验证邮件已发送' })
+  })
+
+  // GET /api/auth/verify-email
+  app.get('/api/auth/verify-email', async (request, reply) => {
+    const { token } = request.query as { token?: string }
+    if (!token) { reply.status(400).send({ error: '缺少验证令牌' }); return }
+    const { EmailService } = await import('../services/email-service')
+    const ok = await EmailService.verifyEmail(token)
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
+    reply.redirect(`${frontendUrl}/login?verified=${ok ? '1' : '0'}`)
+  })
+
+  // POST /api/auth/forgot-password
+  app.post('/api/auth/forgot-password', async (request, reply) => {
+    const { email } = request.body as { email: string }
+    if (!email) { reply.status(400).send({ error: '请输入邮箱' }); return }
+    const { EmailService } = await import('../services/email-service')
+    await EmailService.sendPasswordReset(email)
+    reply.send({ message: '如果该邮箱已注册，重置链接已发送' })
+  })
+
+  // POST /api/auth/reset-password
+  app.post('/api/auth/reset-password', async (request, reply) => {
+    const { token, password } = request.body as { token: string; password: string }
+    if (!token || !password || password.length < 6) {
+      reply.status(400).send({ error: '参数无效' }); return
+    }
+    const { EmailService } = await import('../services/email-service')
+    const ok = await EmailService.resetPassword(token, password)
+    if (!ok) { reply.status(400).send({ error: '令牌无效或已过期' }); return }
+    reply.send({ message: '密码已重置' })
+  })
 }

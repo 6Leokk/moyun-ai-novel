@@ -1,6 +1,7 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
+import helmet from '@fastify/helmet'
 import { validateEnv } from './config/env.ts'
 import { registerAuthMiddleware } from './middleware/auth.ts'
 import { registerErrorHandler } from './middleware/error.ts'
@@ -20,6 +21,9 @@ import { registerCareerRoutes } from './routes/careers.ts'
 import { registerPromptWorkshopRoutes } from './routes/prompt-workshop.ts'
 import { registerAnalyzeBookRoutes } from './routes/analyze-book.ts'
 import { registerAgentRunRoutes } from './routes/agent-runs.ts'
+import { registerOutlineRoutes } from './routes/outlines.ts'
+import { registerAdminRoutes } from './routes/admin.ts'
+import { registerUsageRoutes } from './routes/usage.ts'
 import { closeDb } from './db/connection.ts'
 
 async function main() {
@@ -39,7 +43,13 @@ async function main() {
   await app.register(cors, {
     origin: allowedOrigins
       ? allowedOrigins.split(',').map(s => s.trim())
-      : true,
+      : (process.env.NODE_ENV === 'production' ? false : true),
+  })
+
+  // Security headers
+  await app.register(helmet, {
+    contentSecurityPolicy: false, // SPA needs inline styles/scripts
+    crossOriginEmbedderPolicy: false,
   })
 
   // Rate limiting
@@ -72,6 +82,9 @@ async function main() {
   registerPromptWorkshopRoutes(app)
   registerAnalyzeBookRoutes(app)
   registerAgentRunRoutes(app)
+  registerOutlineRoutes(app)
+  registerAdminRoutes(app)
+  registerUsageRoutes(app)
 
   // Graceful shutdown
   const shutdown = async () => {

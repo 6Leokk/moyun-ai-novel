@@ -8,6 +8,8 @@ import WorldView from '../views/WorldView.vue'
 import StatsView from '../views/StatsView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import LoginView from '../views/LoginView.vue'
+import AdminView from '../views/AdminView.vue'
+import UsageView from '../views/UsageView.vue'
 
 const routes = [
   { path: '/login', name: 'Login', component: LoginView, meta: { title: '登录', public: true } },
@@ -18,7 +20,9 @@ const routes = [
   { path: '/plot', name: 'Plot', component: PlotView, meta: { title: '剧情大纲', icon: '🗺️' } },
   { path: '/world', name: 'World', component: WorldView, meta: { title: '世界观设定', icon: '🌍' } },
   { path: '/stats', name: 'Stats', component: StatsView, meta: { title: '写作统计', icon: '📈' } },
-  { path: '/settings', name: 'Settings', component: SettingsView, meta: { title: '系统设置', icon: '⚙️' } }
+  { path: '/settings', name: 'Settings', component: SettingsView, meta: { title: '系统设置', icon: '⚙️' } },
+  { path: '/admin', name: 'Admin', component: AdminView, meta: { title: '管理面板', icon: '🔧' } },
+  { path: '/usage', name: 'Usage', component: UsageView, meta: { title: '用量统计', icon: '📊' } }
 ]
 
 const router = createRouter({

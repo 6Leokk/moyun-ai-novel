@@ -97,7 +97,19 @@ export class AgentOrchestrator {
 
     // ── Phase 3: Critic ──
     await this.emitPhase('reviewing', 'started', '正在审稿...')
-    const issues = await this.runCritic(content, plan)
+    let issues = await this.runCritic(content, plan)
+
+    // ── Phase 3b: Editor (auto-fix medium severity issues) ──
+    const mediumIssues = issues.filter((i: any) => i.severity === 'medium')
+    if (mediumIssues.length > 0) {
+      await this.emitPhase('editing', 'started', '正在自动修复审稿意见...')
+      content = await this.runEditor(content, mediumIssues)
+    }
+
+    // ── Phase 3c: Re-Critic after edit ──
+    if (mediumIssues.length > 0) {
+      issues = await this.runCritic(content, plan)
+    }
 
     // ── Save ──
     const chineseChars = (content.match(/[一-鿿]/g) || []).length
@@ -147,9 +159,20 @@ export class AgentOrchestrator {
         const systemPrompt = `你是小说写手。严格按规划写作。可以用工具查询角色、记忆、世界观。`
         const prompt = `规划：${JSON.stringify({ sceneGoal: scene.goal, tone: plan.tone, characters: scene.characters, beats: scene.beats, expectedWords: scene.expectedWords })}\n\n已写内容：${fullContent.slice(-1000)}\n\n请写 scene: ${scene.title}`
 
-        for await (const chunk of this.aiService.generateStream({ prompt, systemPrompt })) {
-          sceneText += chunk
-          this.emit('chunk', { text: chunk, sceneIndex: plan.scenes.indexOf(scene) })
+        for await (const event of this.aiService.generateWithTools({
+          prompt, systemPrompt, tools,
+          onToolCall: async (name, args) => {
+            return await this.executeTool(name, args)
+          },
+        })) {
+          if (event.type === 'chunk' && event.text) {
+            sceneText += event.text
+            this.emit('chunk', { text: event.text, sceneIndex: plan.scenes.indexOf(scene) })
+          } else if (event.type === 'tool_call') {
+            this.emit('agent:tool', { tool: event.tool, action: 'call', args: event.args })
+          } else if (event.type === 'tool_result') {
+            this.emit('agent:tool', { tool: event.tool, action: 'result', summary: event.result })
+          }
           if (this.seq % 10 === 0) {
             this.emit('heartbeat', {})
           }
@@ -186,6 +209,19 @@ export class AgentOrchestrator {
       } catch { /* retry */ }
     }
     return []
+  }
+
+  // ── Editor ──
+
+  private async runEditor(content: string, issues: any[]): Promise<string> {
+    try {
+      const prompt = `根据审稿意见修改文章。只修改问题指向的地方，不要重写整章。\n\n审稿意见：${JSON.stringify(issues)}\n\n原文：${content.slice(0, 8000)}\n\n请输出修改后的完整内容。`
+      const result = await this.aiService.generateText({ prompt, temperature: 0.3 })
+      this.emit('agent:phase', { phase: 'editing', status: 'completed', message: '自动修复完成' })
+      return result.content
+    } catch {
+      return content
+    }
   }
 
   // ── Helpers ──

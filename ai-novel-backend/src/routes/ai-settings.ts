@@ -29,7 +29,7 @@ export function registerAISettingsRoutes(app: FastifyInstance) {
       provider: z.enum(['openai', 'anthropic', 'gemini']),
       label: z.string().max(100).optional().default(''),
       apiKey: z.string().min(1, 'API key 不能为空'),
-      apiBaseUrl: z.string().optional(),
+      apiBaseUrl: z.string().url().refine(u => u.startsWith('https://'), '只允许 HTTPS URL').optional(),
       isDefault: z.boolean().optional().default(false),
     })
 
@@ -80,7 +80,7 @@ export function registerAISettingsRoutes(app: FastifyInstance) {
   // ── Preferences ──
 
   // GET /api/ai/preferences
-  app.get('/api/ai/preferences', async (request) => {
+  app.get('/api/ai/preferences', async (request, reply) => {
     const db = getDb()
     const prefs = await db.select().from(userAiPreferences)
       .where(eq(userAiPreferences.userId, request.userId!))

@@ -2,6 +2,7 @@ import { getDb } from '../db/connection'
 import { projects } from '../db/schema'
 import { projectDBManager } from '../db/sqlite/manager'
 import { eq, and, isNull } from 'drizzle-orm'
+import { ProjectPathResolver } from '../utils/project-path'
 
 export async function migrateProjectToSQLite(projectId: string): Promise<{ success: boolean; error?: string }> {
   const db = getDb()
@@ -46,7 +47,7 @@ export async function migrateProjectToSQLite(projectId: string): Promise<{ succe
     }
 
     // Mark as ready
-    const sqlitePath = `/data/projects/${projectId}/data.db`
+    const sqlitePath = ProjectPathResolver.getDBPath(projectId)
     await db.update(projects).set({
       storageBackend: 'sqlite',
       sqliteStatus: 'ready',

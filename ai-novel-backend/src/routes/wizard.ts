@@ -199,7 +199,7 @@ export function registerWizardRoutes(app: FastifyInstance) {
     try {
       const world = await db.select().from(worldSettings)
         .where(eq(worldSettings.projectId, body.projectId)).limit(1)
-      const worldCtx = world.length > 0 ? world[0] : {}
+      const worldCtx = world.length > 0 ? world[0] : { timePeriod: '', location: '', atmosphere: '', rules: '' }
 
       // Get careers for context
       const careersList = await db.select().from(careers)
@@ -256,7 +256,7 @@ export function registerWizardRoutes(app: FastifyInstance) {
         createdCharIds.push(result[0].id)
       }
 
-      await db.update(projects).set({ wizardStep: 3, characterCount: createdCharIds.length })
+      await db.update(projects).set({ wizardStep: 3 } as any)
         .where(eq(projects.id, body.projectId))
 
       sendSSE(reply, 'result', {

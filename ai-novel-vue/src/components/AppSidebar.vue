@@ -47,7 +47,9 @@ const navItems = [
   { path: '/plot', icon: '🗺️', label: '大纲' },
   { path: '/world', icon: '🌍', label: '世界观' },
   { path: '/stats', icon: '📈', label: '统计' },
-  { path: '/settings', icon: '⚙️', label: '设置' }
+  { path: '/usage', icon: '📊', label: '用量' },
+  { path: '/settings', icon: '⚙️', label: '设置' },
+  { path: '/admin', icon: '🔧', label: '管理' }
 ]
 </script>
 

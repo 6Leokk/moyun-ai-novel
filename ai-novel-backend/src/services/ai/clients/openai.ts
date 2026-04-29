@@ -40,7 +40,7 @@ export class OpenAIClient extends BaseAIClient {
 
       const data = await res.json() as any
       return {
-        content: data.choices?.[0]?.message?.content || '',
+        content: data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning || '',
         usage: data.usage ? {
           promptTokens: data.usage.prompt_tokens,
           completionTokens: data.usage.completion_tokens,
@@ -101,7 +101,7 @@ export class OpenAIClient extends BaseAIClient {
 
           try {
             const parsed = JSON.parse(data)
-            const content = parsed.choices?.[0]?.delta?.content
+            const content = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.delta?.reasoning || ''
             if (content) yield content
           } catch {
             // Skip malformed chunks

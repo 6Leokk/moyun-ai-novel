@@ -44,6 +44,8 @@
       </div>
     </div>
 
+    <AgentTimeline />
+
     <div class="ai-input-area">
       <div class="ai-suggestions">
         <button
@@ -78,6 +80,7 @@
 import { ref, nextTick, watch } from 'vue'
 import { useAIStore } from '../stores/ai'
 import { storeToRefs } from 'pinia'
+import AgentTimeline from './AgentTimeline.vue'
 
 const aiStore = useAIStore()
 const { messages, isTyping } = storeToRefs(aiStore)
