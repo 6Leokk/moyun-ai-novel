@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="ink" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#3a5562"/>
+      <stop offset="100%" stop-color="#2a3a44"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#bf5b3a"/>
+      <stop offset="100%" stop-color="#a84a2e"/>
+    </linearGradient>
+  </defs>
+  <!-- 背景 - 米黄色圆角方形 -->
+  <rect x="4" y="4" width="112" height="112" rx="24" ry="24" fill="#faf6ee" stroke="#d9d2c5" stroke-width="2"/>
+  <!-- 毛笔笔杆 -->
+  <rect x="56" y="40" width="8" height="50" rx="3" fill="url(#ink)"/>
+  <!-- 笔尖 -->
+  <polygon points="60,90 54,78 66,78" fill="url(#ink)"/>
+  <!-- 笔尖墨 -->
+  <polygon points="60,90 56,80 64,80" fill="#1a1a18" opacity="0.6"/>
+  <!-- 墨迹 - 圆点 -->
+  <circle cx="60" cy="98" r="8" fill="#1a1a18" opacity="0.15"/>
+  <circle cx="66" cy="95" r="4" fill="#1a1a18" opacity="0.1"/>
+  <!-- 毛笔笔帽装饰 -->
+  <rect x="55" y="40" width="10" height="12" rx="2" fill="url(#accent)"/>
+  <!-- 墨点装饰 -->
+  <circle cx="36" cy="36" r="6" fill="#1a1a18" opacity="0.08"/>
+  <circle cx="84" cy="38" r="3" fill="#1a1a18" opacity="0.06"/>
+  <!-- 小字 "墨" 的抽象笔划 -->
+  <path d="M50,30 Q52,28 56,28 Q62,28 64,30" stroke="#3a5562" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.4"/>
+  <path d="M50,34 Q55,32 60,34" stroke="#3a5562" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.3"/>
+</svg>

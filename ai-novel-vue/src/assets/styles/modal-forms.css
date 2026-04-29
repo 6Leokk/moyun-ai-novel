@@ -1,0 +1,56 @@
+/* Shared modal form styles — extracted from NewProject/NewChar/NewPlot/NewChapter/RelationGraph modals */
+.form-group { margin-bottom: 15px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.form-label {
+  display: block; font-size: 15px; color: var(--text-secondary);
+  margin-bottom: 4px; font-weight: 500;
+}
+
+.form-input {
+  width: 100%; padding: 7px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color); background: var(--bg-panel);
+  color: var(--text-primary); font-size: 16px; outline: none;
+  font-family: inherit; transition: border-color var(--transition-fast);
+}
+
+.form-input:focus {
+  border-color: var(--accent);
+}
+
+.form-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23555554' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+  padding-right: 28px; cursor: pointer;
+}
+
+.form-textarea { min-height: 64px; resize: vertical; }
+
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 6px; margin-top: 18px;
+}
+
+.btn {
+  padding: 7px 16px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color); background: var(--bg-panel);
+  color: var(--text-secondary); font-size: 16px; cursor: pointer;
+  transition: all var(--transition-fast); font-family: inherit;
+}
+
+.btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.btn-primary {
+  background: var(--accent); border-color: var(--accent-dark); color: var(--text-primary);
+}
+
+.btn-primary:hover {
+  background: var(--accent-light);
+}
+
+.btn-ai {
+  background: var(--bg-panel); border-color: var(--border-light);
+  color: var(--text-primary); display: flex; align-items: center; gap: 5px;
+}
+
+.btn-ai:hover { background: var(--bg-hover); border-color: var(--accent); }

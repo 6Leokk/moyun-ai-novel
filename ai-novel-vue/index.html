@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>墨韵 · AI小说创作系统</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*; font-src 'self' data:">
+    <style>
+      *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+      html { background: #faf6ee; color: #2a2824; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', PingFang SC, sans-serif; overflow: hidden; }
+      @keyframes sk-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+      .sk-flex { display: flex; }
+      .sk-col { flex-direction: column; }
+      .sk { background: #ddd5c7; border-radius: 2px; animation: sk-pulse 1.4s ease-in-out infinite; }
+      .sk-h20 { height: 22px; }
+      .sk-h28 { height: 28px; }
+      .sk-h36 { height: 36px; }
+      .sk-h42 { height: 42px; }
+      .sk-h48 { height: 48px; }
+      .sk-h56 { height: 56px; }
+      .sk-h80 { height: 80px; }
+      .sk-w80 { width: 80px; }
+      .sk-w120 { width: 120px; }
+      .sk-w160 { width: 160px; }
+      .sk-flex-1 { flex: 1; }
+      .sk-rounded-full { border-radius: 2px; }
+      #app:empty + .sk-root { display: flex; }
+      .sk-root { display: none; width: 100vw; height: 100vh; }
+      .sk-sidebar { width: 64px; min-width: 64px; height: 100%; background: #f2ede2; border-right: 1px solid #d9d2c5; padding: 18px 0; flex-direction: column; align-items: center; gap: 2px; }
+      .sk-logo { width: 42px; height: 42px; background: linear-gradient(135deg, #4a6d7a, #3a5562); border-radius: 2px; margin-bottom: 8px; }
+      .sk-nav { width: 48px; height: 48px; border-radius: 2px; }
+      .sk-nav:nth-child(3) { background: #4a6d7a; opacity: 0.6; }
+      .sk-main { flex: 1; flex-direction: column; min-width: 0; }
+      .sk-topbar { height: 52px; background: #f7f3e9; border-bottom: 1px solid #d9d2c5; align-items: center; padding: 0 26px; gap: 15px; }
+      .sk-content { flex: 1; padding: 28px; overflow-y: auto; gap: 16px; background: #faf6ee; }
+      .sk-hero { padding: 36px 32px; background: linear-gradient(135deg, #faf6ee, #f2ede2); border-radius: 4px; border: 1px solid #d9d2c5; gap: 15px; }
+      .sk-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+      .sk-stat { padding: 20px; background: #ebe5d9; border-radius: 2px; border: 1px solid #d9d2c5; gap: 16px; }
+      .sk-stat-icon { width: 38px; height: 38px; border-radius: 2px; flex-shrink: 0; }
+      .sk-projects { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+      .sk-project { background: #ebe5d9; border-radius: 2px; border: 1px solid #d9d2c5; overflow: hidden; }
+      .sk-p-cover { height: 110px; }
+      .sk-p-body { padding: 18px 20px 20px; gap: 8px; }
+      .sk-p-bar { height: 3px; border-radius: 2px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <!-- Skeleton Screen: shown while JS loads -->
+    <div class="sk-root sk-flex">
+      <!-- Sidebar -->
+      <div class="sk-sidebar sk-flex sk-col">
+        <div class="sk-logo"></div>
+        <div class="sk sk-nav"></div>
+        <div class="sk sk-nav"></div>
+        <div class="sk sk-nav"></div>
+        <div class="sk sk-nav"></div>
+        <div class="sk sk-nav"></div>
+        <div class="sk sk-nav"></div>
+        <div class="sk sk-nav"></div>
+      </div>
+      <!-- Main -->
+      <div class="sk-main sk-flex sk-col">
+        <div class="sk-topbar sk-flex">
+          <div class="sk sk-h28 sk-w120"></div>
+          <div class="sk-flex-1"></div>
+          <div class="sk sk-h28 sk-w80"></div>
+        </div>
+        <div class="sk-content sk-flex sk-col">
+          <div class="sk-hero sk-flex sk-col">
+            <div class="sk sk-h36 sk-w160"></div>
+            <div class="sk sk-h20 sk-w120"></div>
+          </div>
+          <div class="sk-stats">
+            <div class="sk-stat sk-flex sk-flex">
+              <div class="sk sk-stat-icon"></div>
+              <div class="sk-flex-1 sk-flex sk-col" style="justify-content:center;gap:6px;">
+                <div class="sk sk-h20 sk-w80"></div>
+                <div class="sk sk-h20 sk-w120"></div>
+              </div>
+            </div>
+            <div class="sk-stat sk-flex">
+              <div class="sk sk-stat-icon"></div>
+              <div class="sk-flex-1 sk-flex sk-col" style="justify-content:center;gap:6px;">
+                <div class="sk sk-h20 sk-w80"></div>
+                <div class="sk sk-h20 sk-w120"></div>
+              </div>
+            </div>
+            <div class="sk-stat sk-flex">
+              <div class="sk sk-stat-icon"></div>
+              <div class="sk-flex-1 sk-flex sk-col" style="justify-content:center;gap:6px;">
+                <div class="sk sk-h20 sk-w80"></div>
+                <div class="sk sk-h20 sk-w120"></div>
+              </div>
+            </div>
+            <div class="sk-stat sk-flex">
+              <div class="sk sk-stat-icon"></div>
+              <div class="sk-flex-1 sk-flex sk-col" style="justify-content:center;gap:6px;">
+                <div class="sk sk-h20 sk-w80"></div>
+                <div class="sk sk-h20 sk-w120"></div>
+              </div>
+            </div>
+          </div>
+          <div class="sk-projects">
+            <div class="sk-project">
+              <div class="sk sk-p-cover"></div>
+              <div class="sk-p-body sk-flex sk-col">
+                <div class="sk sk-h20 sk-w120"></div>
+                <div class="sk sk-h20 sk-flex-1"></div>
+                <div class="sk sk-p-bar sk-flex-1"></div>
+              </div>
+            </div>
+            <div class="sk-project">
+              <div class="sk sk-p-cover"></div>
+              <div class="sk-p-body sk-flex sk-col">
+                <div class="sk sk-h20 sk-w120"></div>
+                <div class="sk sk-h20 sk-flex-1"></div>
+                <div class="sk sk-p-bar sk-flex-1"></div>
+              </div>
+            </div>
+            <div class="sk-project">
+              <div class="sk sk-p-cover"></div>
+              <div class="sk-p-body sk-flex sk-col">
+                <div class="sk sk-h20 sk-w120"></div>
+                <div class="sk sk-h20 sk-flex-1"></div>
+                <div class="sk sk-p-bar sk-flex-1"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
