@@ -399,6 +399,7 @@ export const agentRuns = pgTable('agent_runs', {
   phase: varchar('phase', { length: 20 }),
   currentScene: integer('current_scene'),
   plan: jsonb('plan'),
+  planStatus: varchar('plan_status', { length: 20 }).notNull().default('pending_review'),
   wordCount: integer('word_count').notNull().default(0),
   errorMessage: text('error_message'),
   checkpoint: jsonb('checkpoint'),

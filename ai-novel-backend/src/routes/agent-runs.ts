@@ -122,6 +122,19 @@ export function registerAgentRunRoutes(app: FastifyInstance) {
     reply.send({ status: 'failed' })
   })
 
+  // POST /api/agent-runs/:id/confirm-plan — User confirms Planner output
+  app.post('/api/agent-runs/:id/confirm-plan', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const owned = await verifyRunOwnership(id, request.userId!)
+    if (!owned) { reply.status(404).send({ error: 'Run 不存在' }); return }
+    if (owned.run.status !== 'running' || owned.run.phase !== 'planning') {
+      reply.status(409).send({ error: '当前不在规划阶段' }); return
+    }
+    const db = getDb()
+    await db.update(agentRuns).set({ planStatus: 'confirmed' } as any).where(eq(agentRuns.id, id))
+    reply.send({ status: 'confirmed' })
+  })
+
   // GET /api/agent-runs/:id/stream — SSE event replay
   app.get('/api/agent-runs/:id/stream', async (request, reply) => {
     const { id } = request.params as { id: string }

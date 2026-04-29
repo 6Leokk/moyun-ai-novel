@@ -277,12 +277,15 @@ export class AIService {
         // Use OpenAI client directly for native function calling
         const openaiClient = (provider as any).client as OpenAIClient
         if (!openaiClient?.chatCompletion) {
-          // Fallback for non-OpenAI providers
+          // Fallback: plain stream for non-OpenAI providers
           for await (const chunk of provider.generateStream({ prompt: params.prompt, model: params.model || this.model, temperature: params.temperature, maxTokens: params.maxTokens, systemPrompt: params.systemPrompt })) {
             totalText += chunk; yield { type: 'chunk', text: chunk }
           }
           return
         }
+
+        // Attempt native function calling; fall back to plain stream on first failure
+        let useFallback = false
 
         let maxIterations = 10
 
@@ -324,7 +327,15 @@ export class AIService {
             yield { type: 'chunk', text }
             break
           }
+          // If first iteration produced nothing (no content, no tool calls), fall back to plain stream
+          if (maxIterations === 9) { useFallback = true; break }
           break
+        }
+
+        if (useFallback) {
+          for await (const chunk of provider.generateStream({ prompt: params.prompt, model: params.model || this.model, temperature: params.temperature, maxTokens: params.maxTokens, systemPrompt: params.systemPrompt })) {
+            totalText += chunk; yield { type: 'chunk', text: chunk }
+          }
         }
       }
 

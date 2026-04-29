@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { AIService } from './ai/service'
 import { getDb } from '../db/connection'
-import { agentRuns, agentRunEvents, projects, postProcessingTasks } from '../db/schema'
+import { agentRuns, agentRunEvents, projects, postProcessingTasks } from '../db/schema.ts'
 import { projectDBManager } from '../db/sqlite/manager'
 import { READ_TOOLS, WRITE_TOOLS, getToolsForAI, findTool, type AgentToolContext } from './agent-tools'
 import { eq } from 'drizzle-orm'
@@ -59,9 +59,13 @@ export class AgentOrchestrator {
     const plan = await this.runPlanner(mode)
     if (!plan) throw new Error('Planner 失败')
 
-    // Planner review checkpoint: emit plan for user review
+    // Planner review checkpoint: pause for user confirmation
     this.emit('agent:plan_ready', { plan, runId: this.runId })
-    // Continue automatically after brief pause (user can skip review in future)
+    const planConfirmed = await this.waitForPlanConfirmation()
+    if (!planConfirmed) {
+      // Auto-continue after 30s timeout — user can still review plan post-hoc
+      this.emit('agent:phase', { phase: 'planning', status: 'auto_continue', message: '30s 无操作，自动继续' })
+    }
 
     await this.saveCheckpoint({ phase: 'planning', plan })
 
@@ -223,6 +227,21 @@ export class AgentOrchestrator {
     } catch {
       return content
     }
+  }
+
+  // ── Planner Review ──
+
+  private async waitForPlanConfirmation(): Promise<boolean> {
+    const db = getDb()
+    // Poll for up to 30 seconds (6 checks × 5s)
+    for (let i = 0; i < 6; i++) {
+      await new Promise(r => setTimeout(r, 5000))
+      const rows = await db.select({ planStatus: agentRuns.planStatus }).from(agentRuns)
+        .where(eq(agentRuns.id, this.runId)).limit(1)
+      if (rows[0]?.planStatus === 'confirmed') return true
+      if (await this.isCancelled()) return false
+    }
+    return false // timeout: auto-continue
   }
 
   // ── Helpers ──
