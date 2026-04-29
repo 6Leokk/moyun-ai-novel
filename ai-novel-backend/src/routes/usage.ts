@@ -13,19 +13,18 @@ export function registerUsageRoutes(app: FastifyInstance) {
     const thisMonth = new Date(); thisMonth.setDate(1); thisMonth.setHours(0,0,0,0)
     const since = new Date(Date.now() - days*86400000)
 
-    // SECURITY: filter by current user's projects to prevent cross-tenant data leak
     const userProjects = await db.select({ id: projects.id }).from(projects)
       .where(eq(projects.userId, request.userId))
     const projectIds = userProjects.map(p => p.id)
 
     if (projectIds.length === 0) {
-      reply.send({ today: {calls:0,tokens:0,cost:0}, thisMonth: {calls:0,tokens:0,cost:0}, allTime: {calls:0,tokens:0,cost:0}, byModel: [], daily: [] })
+      reply.send({ today:{calls:0,tokens:0,cost:0}, thisMonth:{calls:0,tokens:0,cost:0}, allTime:{calls:0,tokens:0,cost:0}, byModel:[], daily:[], dailyByModel:[] })
       return
     }
 
     const userFilter = inArray(llmCallLogs.projectId, projectIds)
 
-    const [todayStats, monthStats, allTime, modelBreakdown, dailyUsage] = await Promise.all([
+    const [todayStats, monthStats, allTime, modelBreakdown, dailyUsage, dailyByModel] = await Promise.all([
       db.select({ calls: count(), tokens: sql`COALESCE(SUM(${llmCallLogs.inputTokens})+SUM(${llmCallLogs.outputTokens}), 0)::int`, cost: sql`COALESCE(SUM(${llmCallLogs.estimatedCost}::numeric), 0)::float` })
         .from(llmCallLogs).where(and(userFilter, sql`${llmCallLogs.createdAt} >= ${today.toISOString()}`)),
       db.select({ calls: count(), tokens: sql`COALESCE(SUM(${llmCallLogs.inputTokens})+SUM(${llmCallLogs.outputTokens}), 0)::int`, cost: sql`COALESCE(SUM(${llmCallLogs.estimatedCost}::numeric), 0)::float` })
@@ -37,6 +36,9 @@ export function registerUsageRoutes(app: FastifyInstance) {
       db.select({ date: sql`DATE(${llmCallLogs.createdAt})::text`, tokens: sql`COALESCE(SUM(${llmCallLogs.inputTokens})+SUM(${llmCallLogs.outputTokens}), 0)::int`, calls: count(), cost: sql`COALESCE(SUM(${llmCallLogs.estimatedCost}::numeric), 0)::float` })
         .from(llmCallLogs).where(and(userFilter, sql`${llmCallLogs.createdAt} >= ${since.toISOString()}`))
         .groupBy(sql`DATE(${llmCallLogs.createdAt})`).orderBy(sql`DATE(${llmCallLogs.createdAt})`),
+      db.select({ date: sql`DATE(${llmCallLogs.createdAt})::text`, model: llmCallLogs.model, tokens: sql`COALESCE(SUM(${llmCallLogs.inputTokens})+SUM(${llmCallLogs.outputTokens}), 0)::int`, calls: count() })
+        .from(llmCallLogs).where(and(userFilter, sql`${llmCallLogs.createdAt} >= ${since.toISOString()}`))
+        .groupBy(sql`DATE(${llmCallLogs.createdAt})`, llmCallLogs.model).orderBy(sql`DATE(${llmCallLogs.createdAt})`),
     ])
 
     reply.send({
@@ -45,6 +47,7 @@ export function registerUsageRoutes(app: FastifyInstance) {
       allTime: { calls: Number(allTime[0]?.calls ?? 0), tokens: Number(allTime[0]?.tokens ?? 0), cost: Number(allTime[0]?.cost ?? 0) },
       byModel: modelBreakdown.map(m => ({ model: m.model, provider: m.provider, calls: Number(m.calls), tokens: Number(m.tokens), cost: Number(m.cost) })),
       daily: dailyUsage.map(d => ({ date: d.date, tokens: Number(d.tokens), calls: Number(d.calls), cost: Number(d.cost) })),
+      dailyByModel: dailyByModel.map(d => ({ date: d.date, model: d.model, tokens: Number(d.tokens), calls: Number(d.calls) })),
     })
   })
 }
