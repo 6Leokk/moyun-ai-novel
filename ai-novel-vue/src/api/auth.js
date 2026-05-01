@@ -1,7 +1,7 @@
 import { api, setAuthToken, clearAuthToken, getAuthToken } from './index.js'
 
 export async function register({ email, password, nickname }) {
-  const data = await api.post('/auth/register', { email, password, nickname })
+  const data = await api.post('/auth/register', { email, password, username: nickname })
   setAuthToken(data.token)
   return data
 }

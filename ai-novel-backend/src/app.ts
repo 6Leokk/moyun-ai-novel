@@ -9,6 +9,7 @@ import { registerAuthRoutes } from './routes/auth.ts'
 import { registerProjectRoutes } from './routes/projects.ts'
 import { registerChapterRoutes } from './routes/chapters.ts'
 import { registerCharacterRoutes } from './routes/characters.ts'
+import { registerRelationshipRoutes } from './routes/relationships.ts'
 import { registerHealthRoutes } from './routes/health.ts'
 import { registerAISettingsRoutes } from './routes/ai-settings.ts'
 import { registerWizardRoutes } from './routes/wizard.ts'
@@ -22,6 +23,7 @@ import { registerPromptWorkshopRoutes } from './routes/prompt-workshop.ts'
 import { registerAnalyzeBookRoutes } from './routes/analyze-book.ts'
 import { registerAgentRunRoutes } from './routes/agent-runs.ts'
 import { registerOutlineRoutes } from './routes/outlines.ts'
+import { registerWorldEntryRoutes } from './routes/world-entries.ts'
 import { registerAdminRoutes } from './routes/admin.ts'
 import { registerUsageRoutes } from './routes/usage.ts'
 import { closeDb } from './db/connection.ts'
@@ -71,6 +73,8 @@ async function main() {
   registerProjectRoutes(app)
   registerChapterRoutes(app)
   registerCharacterRoutes(app)
+  registerRelationshipRoutes(app)
+  registerWorldEntryRoutes(app)
   registerAISettingsRoutes(app)
   registerWizardRoutes(app)
   registerChapterAIRoutes(app)

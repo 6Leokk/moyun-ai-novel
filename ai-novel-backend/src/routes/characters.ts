@@ -54,12 +54,13 @@ export function registerCharacterRoutes(app: FastifyInstance) {
     if (proj.length === 0) { reply.status(404).send({ error: '项目不存在' }); return }
     if (proj[0].userId !== request.userId) { reply.status(403).send({ error: '无权访问' }); return }
 
-    return db.select().from(characters)
+    const rows = await db.select().from(characters)
       .where(and(
         eq(characters.projectId, id),
         sql`${characters.deletedAt} IS NULL`,
       ))
       .orderBy(characters.createdAt)
+    return { characters: rows }
   })
 
   // POST /api/projects/:id/characters
@@ -94,7 +95,7 @@ export function registerCharacterRoutes(app: FastifyInstance) {
       aiGenerated: body.aiGenerated,
     }).returning()
 
-    reply.status(201).send(result[0])
+    reply.status(201).send({ character: result[0] })
   })
 
   // GET /api/characters/:id — MUST verify project ownership
@@ -112,7 +113,7 @@ export function registerCharacterRoutes(app: FastifyInstance) {
       reply.status(404).send({ error: '角色不存在' })
       return
     }
-    reply.send(found[0].characters)
+    reply.send({ character: found[0].characters })
   })
 
   // PUT /api/characters/:id — MUST verify project ownership
@@ -155,7 +156,7 @@ export function registerCharacterRoutes(app: FastifyInstance) {
       .where(eq(characters.id, id))
       .returning()
 
-    reply.send(updated[0])
+    reply.send({ character: updated[0] })
   })
 
   // DELETE /api/characters/:id — soft delete + cleanup relationships

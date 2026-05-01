@@ -32,9 +32,10 @@ export function registerChapterRoutes(app: FastifyInstance) {
     if (proj.length === 0) { reply.status(404).send({ error: '项目不存在' }); return }
     if (proj[0].userId !== request.userId) { reply.status(403).send({ error: '无权访问' }); return }
 
-    return db.select().from(chapters)
+    const rows = await db.select().from(chapters)
       .where(eq(chapters.projectId, id))
       .orderBy(chapters.chapterNumber)
+    return { chapters: rows }
   })
 
   // POST /api/projects/:id/chapters
@@ -62,7 +63,7 @@ export function registerChapterRoutes(app: FastifyInstance) {
       charactersPresent: body.charactersPresent,
     }).returning()
 
-    reply.status(201).send(result[0])
+    reply.status(201).send({ chapter: result[0] })
   })
 
   // GET /api/chapters/:id — MUST verify project ownership through chapter chain
@@ -80,7 +81,7 @@ export function registerChapterRoutes(app: FastifyInstance) {
       reply.status(404).send({ error: '章节不存在' })
       return
     }
-    reply.send(found[0].chapters)
+    reply.send({ chapter: found[0].chapters })
   })
 
   // PUT /api/chapters/:id — MUST verify project ownership
@@ -112,6 +113,26 @@ export function registerChapterRoutes(app: FastifyInstance) {
       .where(eq(chapters.id, id))
       .returning()
 
-    reply.send(updated[0])
+    reply.send({ chapter: updated[0] })
+  })
+
+  // DELETE /api/chapters/:id — MUST verify project ownership
+  app.delete('/api/chapters/:id', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const db = getDb()
+
+    const found = await db.select()
+      .from(chapters)
+      .innerJoin(projects, eq(chapters.projectId, projects.id))
+      .where(and(eq(chapters.id, id), eq(projects.userId, request.userId!)))
+      .limit(1)
+
+    if (found.length === 0) {
+      reply.status(404).send({ error: '章节不存在' })
+      return
+    }
+
+    await db.delete(chapters).where(eq(chapters.id, id))
+    reply.status(204).send()
   })
 }

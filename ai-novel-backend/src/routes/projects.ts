@@ -10,6 +10,21 @@ import {
 import { eq, and, sql } from 'drizzle-orm'
 import { ProjectPathResolver } from '../utils/project-path.ts'
 
+function includesQuery(values: unknown[], query: string) {
+  const normalized = query.toLowerCase()
+  return values.some(value => typeof value === 'string' && value.toLowerCase().includes(normalized))
+}
+
+function makeSnippet(values: unknown[], query: string) {
+  const normalized = query.toLowerCase()
+  const text = values.find(value => typeof value === 'string' && value.toLowerCase().includes(normalized))
+  if (typeof text !== 'string') return ''
+  const index = Math.max(0, text.toLowerCase().indexOf(normalized))
+  const start = Math.max(0, index - 24)
+  const end = Math.min(text.length, index + query.length + 48)
+  return text.slice(start, end)
+}
+
 export function registerProjectRoutes(app: FastifyInstance) {
   const createSchema = z.object({
     title: z.string().min(1, '项目名称不能为空').max(200),
@@ -43,13 +58,14 @@ export function registerProjectRoutes(app: FastifyInstance) {
   // GET /api/projects
   app.get('/api/projects', async (request) => {
     const db = getDb()
-    return db.select()
+    const rows = await db.select()
       .from(projects)
       .where(and(
         eq(projects.userId, request.userId!),
         sql`${projects.deletedAt} IS NULL`,
       ))
       .orderBy(sql`${projects.updatedAt} DESC`)
+    return { projects: rows }
   })
 
   // POST /api/projects
@@ -101,7 +117,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
       app.log.error(`Failed to init SQLite for project ${projectId}: ${e.message}`)
     }
 
-    reply.status(201).send(result[0])
+    reply.status(201).send({ project: result[0] })
   })
 
   // GET /api/projects/:id
@@ -119,7 +135,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
       reply.status(404).send({ error: '项目不存在' })
       return
     }
-    reply.send(found[0])
+    reply.send({ project: found[0] })
   })
 
   // PUT /api/projects/:id
@@ -162,7 +178,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
       .where(eq(projects.id, id))
       .returning()
 
-    reply.send(updated[0])
+    reply.send({ project: updated[0] })
   })
 
   // GET /api/projects/:id/chapter-graph — chapter relationship graph data
@@ -282,6 +298,155 @@ export function registerProjectRoutes(app: FastifyInstance) {
       completionRate: project[0].targetWords > 0
         ? Math.round((totalWords / project[0].targetWords) * 100) : 0,
     })
+  })
+
+  // GET /api/projects/:id/search?q=...
+  app.get('/api/projects/:id/search', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { q = '' } = request.query as { q?: string }
+    const query = q.trim()
+    const db = getDb()
+
+    const project = await db.select().from(projects)
+      .where(and(eq(projects.id, id), eq(projects.userId, request.userId!)))
+      .limit(1)
+    if (project.length === 0) {
+      reply.status(404).send({ error: '项目不存在' })
+      return
+    }
+    if (!query) {
+      reply.send({ results: [] })
+      return
+    }
+
+    const [chs, chars, entries] = await Promise.all([
+      db.select().from(chapters).where(eq(chapters.projectId, id)),
+      db.select().from(characters)
+        .where(and(eq(characters.projectId, id), sql`${characters.deletedAt} IS NULL`)),
+      db.select().from(worldEntries).where(eq(worldEntries.projectId, id)),
+    ])
+
+    const results = [
+      ...chs
+        .filter(chapter => includesQuery([chapter.title, chapter.content], query))
+        .map(chapter => ({
+          id: chapter.id,
+          type: 'chapter',
+          title: chapter.title,
+          snippet: makeSnippet([chapter.content, chapter.title], query),
+        })),
+      ...chars
+        .filter(character => includesQuery([
+          character.name,
+          character.alias,
+          character.personality,
+          character.background,
+          character.appearance,
+        ], query))
+        .map(character => ({
+          id: character.id,
+          type: 'character',
+          title: character.name,
+          snippet: makeSnippet([
+            character.background,
+            character.personality,
+            character.appearance,
+            character.alias,
+            character.name,
+          ], query),
+        })),
+      ...entries
+        .filter(entry => includesQuery([
+          entry.name,
+          entry.description,
+          ...(Array.isArray(entry.tags) ? entry.tags : []),
+        ], query))
+        .map(entry => ({
+          id: entry.id,
+          type: 'worldEntry',
+          title: entry.name,
+          snippet: makeSnippet([
+            entry.description,
+            entry.name,
+            ...(Array.isArray(entry.tags) ? entry.tags : []),
+          ], query),
+        })),
+    ].slice(0, 20)
+
+    reply.send({ results })
+  })
+
+  // GET /api/projects/:id/stats/summary
+  app.get('/api/projects/:id/stats/summary', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const db = getDb()
+
+    const project = await db.select().from(projects)
+      .where(and(eq(projects.id, id), eq(projects.userId, request.userId!)))
+      .limit(1)
+    if (project.length === 0) {
+      reply.status(404).send({ error: '项目不存在' })
+      return
+    }
+
+    const chs = await db.select().from(chapters).where(eq(chapters.projectId, id))
+    const totalWordsWritten = chs.reduce((sum, chapter) => sum + (chapter.wordCount || 0), 0)
+    const days = new Set(chs
+      .filter(chapter => (chapter.wordCount || 0) > 0)
+      .map(chapter => {
+        const value = chapter.updatedAt ?? chapter.createdAt
+        return value instanceof Date ? value.toISOString().slice(0, 10) : String(value || '').slice(0, 10)
+      })
+      .filter(Boolean))
+    const today = new Date().toISOString().slice(0, 10)
+    const todayWords = chs
+      .filter(chapter => {
+        const value = chapter.updatedAt ?? chapter.createdAt
+        const day = value instanceof Date ? value.toISOString().slice(0, 10) : String(value || '').slice(0, 10)
+        return day === today
+      })
+      .reduce((sum, chapter) => sum + (chapter.wordCount || 0), 0)
+
+    reply.send({
+      summary: {
+        streak: days.has(today) ? 1 : 0,
+        todayWords,
+        totalWordsWritten,
+        totalDays: days.size,
+      },
+    })
+  })
+
+  // GET /api/projects/:id/stats/daily?days=30
+  app.get('/api/projects/:id/stats/daily', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { days = '30' } = request.query as { days?: string }
+    const limit = Math.max(1, Math.min(365, Number.parseInt(days, 10) || 30))
+    const db = getDb()
+
+    const project = await db.select().from(projects)
+      .where(and(eq(projects.id, id), eq(projects.userId, request.userId!)))
+      .limit(1)
+    if (project.length === 0) {
+      reply.status(404).send({ error: '项目不存在' })
+      return
+    }
+
+    const chs = await db.select().from(chapters).where(eq(chapters.projectId, id))
+    const byDay = new Map<string, number>()
+    for (const chapter of chs) {
+      const value = chapter.updatedAt ?? chapter.createdAt
+      const day = value instanceof Date ? value.toISOString().slice(0, 10) : String(value || '').slice(0, 10)
+      if (!day) continue
+      byDay.set(day, (byDay.get(day) || 0) + (chapter.wordCount || 0))
+    }
+
+    const stats = Array.from(byDay.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-limit)
+      .map(([date, words]) => ({ date, words }))
+
+    reply.send({ stats })
   })
 
   // POST /api/projects/import — Import project from JSON package
