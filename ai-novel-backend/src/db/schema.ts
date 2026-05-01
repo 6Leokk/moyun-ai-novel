@@ -67,6 +67,8 @@ export const userAiPreferences = pgTable('user_ai_preferences', {
   defaultModel: varchar('default_model', { length: 100 }).notNull().default('gpt-4o'),
   defaultTemp: real('default_temp').notNull().default(0.8),
   defaultMaxTokens: integer('default_max_tokens').notNull().default(4096),
+  autoPlanApprovalMode: varchar('auto_plan_approval_mode', { length: 20 }).notNull().default('manual'),
+  autoResultHandlingMode: varchar('auto_result_handling_mode', { length: 30 }).notNull().default('manual'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
@@ -399,6 +401,7 @@ export const agentRuns = pgTable('agent_runs', {
   phase: varchar('phase', { length: 20 }),
   currentScene: integer('current_scene'),
   plan: jsonb('plan'),
+  confirmedPlan: jsonb('confirmed_plan'),
   planStatus: varchar('plan_status', { length: 20 }).notNull().default('pending_review'),
   wordCount: integer('word_count').notNull().default(0),
   errorMessage: text('error_message'),

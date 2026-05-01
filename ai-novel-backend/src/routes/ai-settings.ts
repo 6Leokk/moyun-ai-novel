@@ -79,58 +79,86 @@ export function registerAISettingsRoutes(app: FastifyInstance) {
 
   // ── Preferences ──
 
-  // GET /api/ai/preferences
-  app.get('/api/ai/preferences', async (request, reply) => {
-    const db = getDb()
-    const prefs = await db.select().from(userAiPreferences)
-      .where(eq(userAiPreferences.userId, request.userId!))
-      .limit(1)
+  const preferenceDefaults = {
+    defaultProvider: 'openai' as const,
+    defaultModel: 'gpt-4o',
+    defaultTemp: 0.8,
+    defaultMaxTokens: 4096,
+    autoPlanApprovalMode: 'manual' as const,
+    autoResultHandlingMode: 'manual' as const,
+  }
 
-    reply.send(prefs[0] || {
-      defaultProvider: 'openai',
-      defaultModel: 'gpt-4o',
-      defaultTemp: 0.8,
-      defaultMaxTokens: 4096,
-    })
+  const preferenceSchema = z.object({
+    defaultProvider: z.enum(['openai', 'anthropic', 'gemini']).optional(),
+    defaultModel: z.string().max(100).optional(),
+    defaultTemp: z.number().min(0).max(2).optional(),
+    defaultMaxTokens: z.number().min(1).max(128000).optional(),
+    autoPlanApprovalMode: z.enum(['manual', 'auto_confirm']).optional(),
+    autoResultHandlingMode: z.enum(['manual', 'auto_accept_safe', 'auto_accept_all']).optional(),
   })
 
-  // PUT /api/ai/preferences
-  app.put('/api/ai/preferences', async (request, reply) => {
-    const schema = z.object({
-      defaultProvider: z.enum(['openai', 'anthropic', 'gemini']).optional(),
-      defaultModel: z.string().max(100).optional(),
-      defaultTemp: z.number().min(0).max(2).optional(),
-      defaultMaxTokens: z.number().min(1).max(128000).optional(),
-    })
-
-    const body = schema.parse(request.body)
+  async function getPreferences(userId: string) {
     const db = getDb()
+    const prefs = await db.select().from(userAiPreferences)
+      .where(eq(userAiPreferences.userId, userId))
+      .limit(1)
 
+    return prefs[0] || preferenceDefaults
+  }
+
+  async function upsertPreferences(userId: string, body: z.infer<typeof preferenceSchema>) {
+    const db = getDb()
     const existing = await db.select().from(userAiPreferences)
-      .where(eq(userAiPreferences.userId, request.userId!))
+      .where(eq(userAiPreferences.userId, userId))
       .limit(1)
 
     if (existing.length === 0) {
       const result = await db.insert(userAiPreferences).values({
-        userId: request.userId!,
-        defaultProvider: body.defaultProvider ?? 'openai',
-        defaultModel: body.defaultModel ?? 'gpt-4o',
-        defaultTemp: body.defaultTemp ?? 0.8,
-        defaultMaxTokens: body.defaultMaxTokens ?? 4096,
+        userId,
+        defaultProvider: body.defaultProvider ?? preferenceDefaults.defaultProvider,
+        defaultModel: body.defaultModel ?? preferenceDefaults.defaultModel,
+        defaultTemp: body.defaultTemp ?? preferenceDefaults.defaultTemp,
+        defaultMaxTokens: body.defaultMaxTokens ?? preferenceDefaults.defaultMaxTokens,
+        autoPlanApprovalMode: body.autoPlanApprovalMode ?? preferenceDefaults.autoPlanApprovalMode,
+        autoResultHandlingMode: body.autoResultHandlingMode ?? preferenceDefaults.autoResultHandlingMode,
       }).returning()
-      reply.send(result[0])
-    } else {
-      const updates: Record<string, unknown> = {}
-      if (body.defaultProvider !== undefined) updates.defaultProvider = body.defaultProvider
-      if (body.defaultModel !== undefined) updates.defaultModel = body.defaultModel
-      if (body.defaultTemp !== undefined) updates.defaultTemp = body.defaultTemp
-      if (body.defaultMaxTokens !== undefined) updates.defaultMaxTokens = body.defaultMaxTokens
-
-      const result = await db.update(userAiPreferences)
-        .set(updates)
-        .where(eq(userAiPreferences.userId, request.userId!))
-        .returning()
-      reply.send(result[0])
+      return result[0]
     }
+
+    const updates: Record<string, unknown> = {}
+    if (body.defaultProvider !== undefined) updates.defaultProvider = body.defaultProvider
+    if (body.defaultModel !== undefined) updates.defaultModel = body.defaultModel
+    if (body.defaultTemp !== undefined) updates.defaultTemp = body.defaultTemp
+    if (body.defaultMaxTokens !== undefined) updates.defaultMaxTokens = body.defaultMaxTokens
+    if (body.autoPlanApprovalMode !== undefined) updates.autoPlanApprovalMode = body.autoPlanApprovalMode
+    if (body.autoResultHandlingMode !== undefined) updates.autoResultHandlingMode = body.autoResultHandlingMode
+
+    const result = await db.update(userAiPreferences)
+      .set(updates)
+      .where(eq(userAiPreferences.userId, userId))
+      .returning()
+    return result[0]
+  }
+
+  // GET /api/ai/preferences
+  app.get('/api/ai/preferences', async (request, reply) => {
+    reply.send(await getPreferences(request.userId!))
+  })
+
+  // PUT /api/ai/preferences
+  app.put('/api/ai/preferences', async (request, reply) => {
+    const body = preferenceSchema.parse(request.body)
+    reply.send(await upsertPreferences(request.userId!, body))
+  })
+
+  // GET /api/settings
+  app.get('/api/settings', async (request, reply) => {
+    reply.send(await getPreferences(request.userId!))
+  })
+
+  // PUT /api/settings
+  app.put('/api/settings', async (request, reply) => {
+    const body = preferenceSchema.parse(request.body)
+    reply.send(await upsertPreferences(request.userId!, body))
   })
 }
