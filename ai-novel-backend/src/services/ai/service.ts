@@ -30,6 +30,12 @@ interface GenerateResult {
   usage?: { promptTokens: number; completionTokens: number }
 }
 
+const LLM_LOG_PHASE_MAX_LENGTH = 20
+
+export function toLlmLogPhase(genType: string): string {
+  return genType.slice(0, LLM_LOG_PHASE_MAX_LENGTH)
+}
+
 export class AIService {
   private userId: string
   private projectId?: string
@@ -181,7 +187,7 @@ export class AIService {
         await db.insert(llmCallLogs).values({
           projectId: params.projectId || this.projectId || null,
           chapterId: params.chapterId || null,
-          phase: params.genType,
+          phase: toLlmLogPhase(params.genType),
           provider: this.provider,
           model,
           requestType: 'chat',

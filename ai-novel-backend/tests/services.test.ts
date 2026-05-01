@@ -4,6 +4,7 @@ import fs from 'fs'
 import { initProjectDB } from '../src/db/sqlite/connection'
 import { PromptService } from '../src/services/prompt-service'
 import { ChapterContextBuilder } from '../src/services/chapter-context'
+import { toLlmLogPhase } from '../src/services/ai/service'
 
 // ── Prompt Service ──
 
@@ -29,6 +30,13 @@ describe('PromptService', () => {
   it('handles numeric values', () => {
     const result = PromptService.formatPrompt('字数：{count}', { count: 5000 })
     expect(result).toBe('字数：5000')
+  })
+})
+
+describe('AIService logging helpers', () => {
+  it('keeps llm_call_logs phase within the database column limit', () => {
+    expect(toLlmLogPhase('post_migration_ollama_check')).toBe('post_migration_ollam')
+    expect(toLlmLogPhase('json_generation')).toBe('json_generation')
   })
 })
 

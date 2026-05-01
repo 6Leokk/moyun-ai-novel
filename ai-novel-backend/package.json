@@ -3,15 +3,15 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/app.ts",
+    "dev": "tsx watch -r dotenv/config src/app.ts",
     "build": "tsc",
-    "start": "node dist/app.js",
+    "start": "node -r dotenv/config dist/app.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/db/seed.ts",
-    "worker": "tsx src/workers/post-processor.ts",
-    "start:worker": "node dist/workers/post-processor.js"
+    "worker": "tsx -r dotenv/config src/workers/post-processor.ts",
+    "start:worker": "node -r dotenv/config dist/workers/post-processor.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.1",

@@ -4,7 +4,7 @@ import { setupSSE, sendSSE, sendSSEHeartbeat, sendSSEDone, sendSSEError } from '
 import { signToken, verifyToken } from '../src/lib/jwt'
 
 process.env.JWT_SECRET = 'test-secret-key-for-testing-12345678'
-process.env.ENCRYPTION_KEY = 'abcdefghijklmnopqrstuvwxyz123456'
+process.env.ENCRYPTION_KEY = 'test-only-encryption-key-1234567'
 
 describe('Crypto', () => {
   it('encrypts and decrypts API key', () => {
