@@ -132,8 +132,9 @@ export const saveChapterTool: AgentTool<{ content: string; wordCount: number }, 
   inputSchema: { type: 'object', properties: { content: { type: 'string' }, wordCount: { type: 'number' } }, required: ['content', 'wordCount'] },
   async execute(args, ctx) {
     const db = getDB(ctx.projectId)
-    db.prepare(`UPDATE chapters SET content = ?, word_count = ?, status = 'done', summary_status = 'pending', updated_at = datetime('now') WHERE id = ?`)
+    const result = db.prepare(`UPDATE chapters SET content = ?, word_count = ?, status = 'done', summary_status = 'pending', updated_at = datetime('now') WHERE id = ?`)
       .run(args.content, args.wordCount, ctx.chapterId)
+    if (result.changes === 0) throw new Error(`章节不存在: ${ctx.chapterId}`)
     return { success: true }
   },
   summarizeForAI() { return { saved: true } },

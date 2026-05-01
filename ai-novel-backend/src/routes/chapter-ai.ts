@@ -9,6 +9,8 @@ import { PromptService } from '../services/prompt-service.ts'
 import { ChapterContextBuilder, ChapterContext } from '../services/chapter-context.ts'
 import { setupSSE, sendSSE, sendSSEHeartbeat, sendSSEDone, sendSSEError } from '../utils/sse.ts'
 import { AgentOrchestrator } from '../services/agent-orchestrator.ts'
+import { syncChapterFromSQLite, syncProjectToSQLite } from '../services/project-sqlite-sync.ts'
+import { refreshProjectCurrentWords } from '../services/project-stats.ts'
 
 export function registerChapterAIRoutes(app: FastifyInstance) {
   // ── POST /api/chapters/:id/generate ──
@@ -244,6 +246,7 @@ export function registerChapterAIRoutes(app: FastifyInstance) {
 
     if (ch.length === 0) { reply.status(404).send({ error: '章节不存在' }); return }
     const chapter = ch[0].chapters
+    await syncProjectToSQLite(chapter.projectId)
 
     // Idempotency check
     const existing = await db.select().from(agentRuns)
@@ -299,11 +302,9 @@ export function registerChapterAIRoutes(app: FastifyInstance) {
 
     try {
       const result = await orchestrator.execute(body.mode)
+      await syncChapterFromSQLite(chapter.projectId, id)
 
-      // Sync word count to PG
-      await db.update(projects)
-        .set({ currentWords: sql`${projects.currentWords} + ${result.wordCount}` } as any)
-        .where(eq(projects.id, chapter.projectId))
+      await refreshProjectCurrentWords(chapter.projectId)
 
       sendSSEDone(reply)
     } catch (e: any) {

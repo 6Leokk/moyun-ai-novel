@@ -164,6 +164,12 @@ describe('Agent Tools', () => {
       expect(ch.word_count).toBe(3)
       expect(ch.status).toBe('done')
     })
+
+    it('fails when the target chapter is missing', async () => {
+      const tool = findTool('saveChapter')!
+      await expect(tool.execute({ content: '孤立内容', wordCount: 4 }, { ...ctx, chapterId: 'missing-chapter' }))
+        .rejects.toThrow('章节不存在')
+    })
   })
 
   describe('Write Tools - resolveForeshadow', () => {
