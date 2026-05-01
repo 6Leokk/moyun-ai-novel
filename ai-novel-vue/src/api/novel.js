@@ -39,7 +39,7 @@ export const deleteWorldEntry = (entryId) => api.del(`/world-entries/${entryId}`
 
 // Settings
 export const getSettings = () => api.get('/settings')
-export const updateSettings = (data) => api.put('/settings', { data })
+export const updateSettings = (data) => api.put('/settings', data)
 
 // Health
 export const checkHealth = () => api.get('/health')
@@ -316,6 +316,8 @@ export async function generateAgent(chapterId, { mode = 'generate', instruction,
               callbacks.onTool(parsed)
             } else if (currentEvent === 'agent:issue') {
               callbacks.onIssue?.(parsed.issue)
+            } else if (currentEvent === 'agent:plan_ready') {
+              callbacks.onPlanReady?.(parsed)
             } else if (currentEvent === 'agent:plan_patch') {
               callbacks.onPlanPatch?.(parsed.patch)
             } else if (currentEvent === 'result') {
@@ -344,3 +346,4 @@ export const getAgentRun = (runId) => api.get(`/agent-runs/${runId}`)
 export const cancelAgentRun = (runId) => api.post(`/agent-runs/${runId}/cancel`)
 export const acceptAgentRun = (runId) => api.post(`/agent-runs/${runId}/accept`)
 export const discardAgentRun = (runId) => api.post(`/agent-runs/${runId}/discard`)
+export const confirmAgentPlan = (runId, confirmedPlan) => api.post(`/agent-runs/${runId}/confirm-plan`, { confirmedPlan })

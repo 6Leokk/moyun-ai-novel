@@ -39,17 +39,26 @@
     <div v-if="showPlanReview" class="plan-review-banner">
       <div class="plan-review-header">📋 规划审核 — 请确认场景规划</div>
       <div class="plan-review-body">
-        <div v-if="agentStore.currentPlan">
-          <div class="plan-goal">{{ agentStore.currentPlan.chapterGoal }}</div>
-          <div v-for="s in (agentStore.currentPlan.scenes || [])" :key="s.id" class="plan-scene">
-            <strong>{{ s.title }}</strong> ({{ s.expectedWords }}字) — {{ s.characters?.join(', ') }}
-            <div class="plan-beats">{{ s.beats?.join(' → ') }}</div>
+        <div v-if="editablePlan">
+          <label class="plan-edit-label">章节目标</label>
+          <textarea v-model="editablePlan.chapterGoal" class="plan-input" rows="2"></textarea>
+          <div v-for="s in (editablePlan.scenes || [])" :key="s.id" class="plan-scene">
+            <input v-model="s.title" class="plan-input scene-title" />
+            <div class="plan-scene-grid">
+              <input v-model.number="s.expectedWords" type="number" min="100" class="plan-input" />
+              <input :value="(s.characters || []).join(', ')" class="plan-input" @input="s.characters = splitList($event.target.value)" />
+            </div>
+            <textarea
+              :value="(s.beats || []).join('\n')"
+              class="plan-input"
+              rows="4"
+              @input="s.beats = splitLines($event.target.value)"
+            ></textarea>
           </div>
         </div>
       </div>
       <div class="plan-review-actions">
         <button class="btn btn-primary" @click="confirmPlan">✅ 确认规划，开始写作</button>
-        <button class="btn" @click="showPlanReview = false">暂不确认（稍后自动继续）</button>
       </div>
     </div>
 
@@ -141,8 +150,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useNovelStore } from '../stores/novel'
 import { useAIStore } from '../stores/ai'
 import { useAgentStore } from '../stores/agent'
-import { generateAgent, cancelAgentRun, acceptAgentRun, discardAgentRun } from '../api/novel'
-import { api } from '../api/index'
+import { generateAgent, cancelAgentRun, acceptAgentRun, discardAgentRun, confirmAgentPlan, getSettings } from '../api/novel'
 import { storeToRefs } from 'pinia'
 import { useToastStore } from '../stores/toast'
 import NewChapterModal from '../components/NewChapterModal.vue'
@@ -156,14 +164,41 @@ const { openPanel, sendMessage } = aiStore
 const agentStore = useAgentStore()
 const toast = useToastStore()
 const showPlanReview = ref(false)
+const editablePlan = ref({})
+const aiPreferences = ref({
+  autoPlanApprovalMode: 'manual',
+  autoResultHandlingMode: 'manual',
+})
+
+function splitList(value) {
+  return value.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+function splitLines(value) {
+  return value.split('\n').map(s => s.trim()).filter(Boolean)
+}
+
+function clonePlan(plan) {
+  return JSON.parse(JSON.stringify(plan || {}))
+}
 
 async function confirmPlan() {
   if (!agentStore.currentRunId) return
   try {
-    await api.post(`/agent-runs/${agentStore.currentRunId}/confirm-plan`)
+    await confirmAgentPlan(agentStore.currentRunId, clonePlan(editablePlan.value))
     showPlanReview.value = false
     toast.success('规划已确认，继续生成')
   } catch { toast.error('确认失败') }
+}
+
+async function loadAIPreferences() {
+  try {
+    const settings = await getSettings()
+    aiPreferences.value = {
+      autoPlanApprovalMode: settings.autoPlanApprovalMode || 'manual',
+      autoResultHandlingMode: settings.autoResultHandlingMode || 'manual',
+    }
+  } catch { /* defaults are fine */ }
 }
 
 // ── Deep Generation ──
@@ -184,12 +219,15 @@ async function onDeepGenerate() {
       },
       onPhase(evt) {
         agentStore.updatePhase(evt.phase, evt.status)
-        if (evt.status === 'awaiting_review') showPlanReview.value = true
+        if (evt.status === 'awaiting_review' && aiPreferences.value.autoPlanApprovalMode !== 'auto_confirm') {
+          showPlanReview.value = true
+        }
       },
       onPlanReady(evt) {
-        agentStore.currentPlan = evt.plan
+        agentStore.setPlanReady(evt)
+        editablePlan.value = clonePlan(evt.plan)
         agentStore.addEvent({ eventType: 'agent:plan_ready', payload: evt })
-        showPlanReview.value = true
+        showPlanReview.value = aiPreferences.value.autoPlanApprovalMode !== 'auto_confirm'
       },
       onScene(evt) {
         agentStore.addEvent(evt)
@@ -201,10 +239,13 @@ async function onDeepGenerate() {
       onResult(evt) {
         agentStore.setIssues(evt.issues)
         agentStore.addEvent(evt)
+        if (evt.status) {
+          agentStore.updatePhase(evt.phase, evt.status)
+        }
         const hasHigh = evt.issues?.some(i => i.severity === 'high')
         if (evt.issues?.length > 0) {
-          agentStore.updatePhase(null, hasHigh ? 'needs_manual_review' : 'completed')
-          if (hasHigh) {
+          if (!evt.status) agentStore.updatePhase(null, hasHigh ? 'needs_manual_review' : 'completed')
+          if (agentStore.needsReview) {
             toast.warning('深度生成完成，审稿发现严重问题需手动处理')
           } else {
             toast.success(`深度生成完成，${evt.wordCount?.toLocaleString() || 0} 字`)
@@ -245,6 +286,7 @@ function onCancelDeepGenerate() {
 
 // Restore active run on page load
 onMounted(async () => {
+  await loadAIPreferences()
   if (storeChapters.value.length > 0) {
     const firstWriting = storeChapters.value.find(c => c.status === 'writing')
     const first = firstWriting || storeChapters.value[0]
@@ -619,9 +661,12 @@ function onTitleChange() {
 .plan-review-banner { margin: 0 0 12px; padding: 16px 22px; background: var(--bg-panel); border: 2px solid var(--accent-amber); border-radius: var(--radius-sm); }
 .plan-review-header { font-size: 16px; font-weight: 600; margin-bottom: 10px; color: var(--accent-amber); }
 .plan-review-body { max-height: 300px; overflow-y: auto; margin-bottom: 12px; font-size: 13px; }
-.plan-goal { margin-bottom: 8px; color: var(--text-secondary); }
-.plan-scene { padding: 6px 0; border-bottom: 1px solid var(--border-color); }
-.plan-beats { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.plan-edit-label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 12px; }
+.plan-input { width: 100%; box-sizing: border-box; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-primary); font: inherit; padding: 8px 10px; resize: vertical; }
+.plan-input:focus { outline: none; border-color: var(--accent); }
+.plan-scene { padding: 10px 0; border-bottom: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px; }
+.scene-title { font-weight: 600; }
+.plan-scene-grid { display: grid; grid-template-columns: 120px 1fr; gap: 8px; }
 .plan-review-actions { display: flex; gap: 8px; }
 
 .toolbar-divider {

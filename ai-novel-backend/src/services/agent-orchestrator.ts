@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { AIService } from './ai/service'
 import { getDb } from '../db/connection'
-import { agentRuns, agentRunEvents, projects, postProcessingTasks } from '../db/schema.ts'
+import { agentRuns, agentRunEvents, projects, postProcessingTasks, userAiPreferences } from '../db/schema.ts'
 import { projectDBManager } from '../db/sqlite/manager'
 import { READ_TOOLS, WRITE_TOOLS, getToolsForAI, findTool, type AgentToolContext } from './agent-tools'
 import { eq } from 'drizzle-orm'
@@ -28,6 +28,25 @@ interface PlannerOutput {
 
 interface SSESink {
   emit(event: string, data: Record<string, unknown>): void
+}
+
+type AutoPlanApprovalMode = 'manual' | 'auto_confirm'
+type AutoResultHandlingMode = 'manual' | 'auto_accept_safe' | 'auto_accept_all'
+
+export function hasHighSeverityIssue(issues: any[]): boolean {
+  return issues.some((i: any) => i.severity === 'high')
+}
+
+export function shouldAutoAcceptResult(mode: AutoResultHandlingMode, issues: any[]): boolean {
+  if (mode === 'auto_accept_all') return true
+  if (mode === 'auto_accept_safe') return !hasHighSeverityIssue(issues)
+  return false
+}
+
+export function selectFinalRunState(mode: AutoResultHandlingMode, issues: any[]): { status: string; phase: string | null } {
+  if (shouldAutoAcceptResult(mode, issues)) return { status: 'completed', phase: null }
+  if (hasHighSeverityIssue(issues)) return { status: 'needs_manual_review', phase: 'needs_manual_review' }
+  return { status: 'completed', phase: null }
 }
 
 export class AgentOrchestrator {
@@ -59,13 +78,23 @@ export class AgentOrchestrator {
     const plan = await this.runPlanner(mode)
     if (!plan) throw new Error('Planner 失败')
 
-    // Planner review checkpoint: pause for user confirmation (no auto-continue)
-    this.emit('agent:plan_ready', { plan, runId: this.runId })
-    this.emit('agent:phase', { phase: 'planning', status: 'awaiting_review', message: '规划完成，等待确认' })
-    const planConfirmed = await this.waitForPlanConfirmation()
-    if (!planConfirmed) { throw new Error('规划审核超时或取消') }
+    await this.savePlannerOutput(plan)
 
-    await this.saveCheckpoint({ phase: 'planning', plan })
+    const preferences = await this.getAutomationPreferences()
+    let confirmedPlan: PlannerOutput
+
+    if (preferences.autoPlanApprovalMode === 'auto_confirm') {
+      confirmedPlan = plan
+      await this.confirmPlan(confirmedPlan)
+    } else {
+      this.emit('agent:plan_ready', { plan, runId: this.runId })
+      this.emit('agent:phase', { phase: 'planning', status: 'awaiting_review', message: '规划完成，等待确认' })
+      const userConfirmedPlan = await this.waitForPlanConfirmation()
+      if (!userConfirmedPlan) { throw new Error('规划审核超时或取消') }
+      confirmedPlan = userConfirmedPlan
+    }
+
+    await this.saveCheckpoint({ phase: 'planning', plan, confirmedPlan })
 
     // ── Phase 2: Writer ──
     await this.emitPhase('writing', 'started', '正在写作...')
@@ -73,23 +102,23 @@ export class AgentOrchestrator {
     let content = mode === 'continue' ? await this.getExistingContent() : ''
     let wordCount = content.length
 
-    for (let si = 0; si < plan.scenes.length; si++) {
+    for (let si = 0; si < confirmedPlan.scenes.length; si++) {
       if (await this.isCancelled()) { await this.savePartial(content); throw new Error('已取消') }
 
-      const scene = plan.scenes[si]
+      const scene = confirmedPlan.scenes[si]
       this.toolCallsThisScene = 0
       await this.emitScene(si, scene)
 
       const contentBefore = content
-      const sceneContent = await this.runWriterScene(scene, plan, content)
+      const sceneContent = await this.runWriterScene(scene, confirmedPlan, content)
       content += sceneContent
       wordCount += sceneContent.length
 
       // Self-check for hard conflicts
-      const conflict = await this.writerSelfCheck(scene, sceneContent, plan)
+      const conflict = await this.writerSelfCheck(scene, sceneContent, confirmedPlan)
       if (conflict.hasHardConflict && this.plannerCallbacks < MAX_PLANNER_CALLBACKS) {
         this.plannerCallbacks++
-        const patch = await this.runPlannerPatch(scene, conflict, plan)
+        const patch = await this.runPlannerPatch(scene, conflict, confirmedPlan)
         if (patch) {
           await this.emitPlanPatch(patch)
           if (patch.action === 'rewrite') {
@@ -103,7 +132,7 @@ export class AgentOrchestrator {
 
     // ── Phase 3: Critic ──
     await this.emitPhase('reviewing', 'started', '正在审稿...')
-    let issues = await this.runCritic(content, plan)
+    let issues = await this.runCritic(content, confirmedPlan)
 
     // ── Phase 3b: Editor → Re-Critic loop (max 2 rounds) ──
     for (let round = 0; round < 2; round++) {
@@ -111,7 +140,7 @@ export class AgentOrchestrator {
       if (mediumIssues.length === 0) break
       await this.emitPhase('editing', 'started', `自动修复中 (第${round + 1}轮)...`)
       content = await this.runEditor(content, mediumIssues)
-      issues = await this.runCritic(content, plan)
+      issues = await this.runCritic(content, confirmedPlan)
     }
 
     // ── Save ──
@@ -121,7 +150,7 @@ export class AgentOrchestrator {
 
     await this.saveChapter(content, finalWordCount)
     await this.createPostProcessingTasks(content)
-    await this.markCompleted(content, finalWordCount, issues)
+    await this.markCompleted(content, finalWordCount, issues, preferences.autoResultHandlingMode)
 
     return { content, wordCount: finalWordCount, issues }
   }
@@ -229,18 +258,21 @@ export class AgentOrchestrator {
 
   // ── Planner Review ──
 
-  private async waitForPlanConfirmation(): Promise<boolean> {
+  private async waitForPlanConfirmation(): Promise<PlannerOutput | null> {
     const db = getDb()
     const timeout = parseInt(process.env.PLANNER_REVIEW_TIMEOUT || '300', 10) // 5 min default
     const maxChecks = Math.ceil(timeout / 5) // Check every 5 seconds
     for (let i = 0; i < maxChecks; i++) {
       await new Promise(r => setTimeout(r, 5000))
-      const rows = await db.select({ planStatus: agentRuns.planStatus }).from(agentRuns)
+      const rows = await db.select({
+        planStatus: agentRuns.planStatus,
+        confirmedPlan: agentRuns.confirmedPlan,
+      }).from(agentRuns)
         .where(eq(agentRuns.id, this.runId)).limit(1)
-      if (rows[0]?.planStatus === 'confirmed') return true
-      if (await this.isCancelled()) return false
+      if (rows[0]?.planStatus === 'confirmed') return rows[0].confirmedPlan as PlannerOutput
+      if (await this.isCancelled()) return null
     }
-    return false // timeout: throw
+    return null // timeout: throw
   }
 
   // ── Helpers ──
@@ -327,19 +359,53 @@ export class AgentOrchestrator {
     this.emit('agent:checkpoint', data)
   }
 
-  private async markCompleted(_content: string, wordCount: number, issues: any[]): Promise<void> {
+  private async getAutomationPreferences(): Promise<{
+    autoPlanApprovalMode: AutoPlanApprovalMode
+    autoResultHandlingMode: AutoResultHandlingMode
+  }> {
     const db = getDb()
-    const hasHighSeverity = issues.some((i: any) => i.severity === 'high')
+    const rows = await db.select({
+      autoPlanApprovalMode: userAiPreferences.autoPlanApprovalMode,
+      autoResultHandlingMode: userAiPreferences.autoResultHandlingMode,
+    }).from(userAiPreferences)
+      .where(eq(userAiPreferences.userId, this.ctx.userId))
+      .limit(1)
+
+    return {
+      autoPlanApprovalMode: (rows[0]?.autoPlanApprovalMode || 'manual') as AutoPlanApprovalMode,
+      autoResultHandlingMode: (rows[0]?.autoResultHandlingMode || 'manual') as AutoResultHandlingMode,
+    }
+  }
+
+  private async savePlannerOutput(plan: PlannerOutput): Promise<void> {
+    const db = getDb()
+    await db.update(agentRuns).set({
+      plan,
+      planStatus: 'pending_review',
+    } as any).where(eq(agentRuns.id, this.runId))
+  }
+
+  private async confirmPlan(confirmedPlan: PlannerOutput): Promise<void> {
+    const db = getDb()
+    await db.update(agentRuns).set({
+      confirmedPlan,
+      planStatus: 'confirmed',
+    } as any).where(eq(agentRuns.id, this.runId))
+  }
+
+  private async markCompleted(_content: string, wordCount: number, issues: any[], mode: AutoResultHandlingMode): Promise<void> {
+    const db = getDb()
+    const finalState = selectFinalRunState(mode, issues)
 
     await db.update(agentRuns).set({
-      status: hasHighSeverity ? 'needs_manual_review' : 'completed',
-      phase: hasHighSeverity ? 'needs_manual_review' : null,
+      status: finalState.status,
+      phase: finalState.phase,
       wordCount,
       resultData: { issues, wordCount },
       finishedAt: new Date(),
     } as any).where(eq(agentRuns.id, this.runId))
 
-    this.emit('result', { runId: this.runId, issues, wordCount })
+    this.emit('result', { runId: this.runId, issues, wordCount, status: finalState.status, phase: finalState.phase })
     this.emit('done', {})
   }
 

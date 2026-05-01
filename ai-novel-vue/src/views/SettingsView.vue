@@ -146,6 +146,32 @@
             </select>
           </div>
 
+          <div class="agent-automation-section">
+            <h4 class="subsection-title">Agent 自动化</h4>
+            <div class="form-group">
+              <label class="form-label label-with-help">
+                规划确认自动化
+                <span class="help-icon" title="手动确认会在规划后暂停；自动确认会直接使用 Planner 原始规划继续写作。">?</span>
+              </label>
+              <select v-model="settings.autoPlanApprovalMode" class="form-input form-select">
+                <option value="manual">手动确认规划</option>
+                <option value="auto_confirm">自动确认规划</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label label-with-help">
+                审稿结果处理自动化
+                <span class="help-icon" title="安全自动接受会保留高风险问题给人工处理；全部自动接受会跳过高风险人工审核。">?</span>
+              </label>
+              <select v-model="settings.autoResultHandlingMode" class="form-input form-select">
+                <option value="manual">手动处理结果</option>
+                <option value="auto_accept_safe">无高风险时自动接受</option>
+                <option value="auto_accept_all">全部自动接受</option>
+              </select>
+            </div>
+          </div>
+
           <div class="form-actions">
             <button class="btn btn-primary" @click="saveSettings">保存设置</button>
           </div>
@@ -403,7 +429,7 @@ import {
   getProjectDefaultStyle, setProjectDefaultStyle,
   getPromptTemplates, createPromptTemplate, updatePromptTemplate, deletePromptTemplate, resetPromptTemplate,
   browseWorkshop, forkWorkshopTemplate,
-  analyzeBook, getStatsSummary,
+  analyzeBook, getStatsSummary, getSettings, updateSettings,
 } from '../api/novel'
 import { getAuthToken } from '../api/index'
 import { useToastStore } from '../stores/toast.js'
@@ -500,8 +526,23 @@ const settings = reactive({
   maxLength: '1000字 (标准章节)',
   consistencyCheck: true,
   contextRange: '最近5章 (推荐)',
-  theme: 'dark'
+  theme: 'dark',
+  autoPlanApprovalMode: 'manual',
+  autoResultHandlingMode: 'manual',
 })
+
+async function loadSettings() {
+  try {
+    const data = await getSettings()
+    Object.assign(settings, {
+      aiProvider: data.defaultProvider || settings.aiProvider,
+      aiModel: data.defaultModel || settings.aiModel,
+      temperature: Math.round((data.defaultTemp ?? 0.8) * 100),
+      autoPlanApprovalMode: data.autoPlanApprovalMode || 'manual',
+      autoResultHandlingMode: data.autoResultHandlingMode || 'manual',
+    })
+  } catch { /* local settings remain usable */ }
+}
 
 // ── Writing Styles ──
 const writingStylesList = ref([])
@@ -708,7 +749,7 @@ async function importAnalyzedBook() {
 }
 
 // Load on mount and when project changes
-onMounted(() => { loadWritingStyles(); loadPromptTemplates(); loadWorkshop() })
+onMounted(() => { loadSettings(); loadWritingStyles(); loadPromptTemplates(); loadWorkshop() })
 watch(() => novelStore.project?.id, (pid) => { if (pid) { loadProjectStyle() } }, { immediate: true })
 
 const navItems = [
@@ -759,8 +800,13 @@ async function saveSettings() {
     document.documentElement.setAttribute('data-theme', settings.theme)
     localStorage.setItem('app_settings', JSON.stringify(settings))
     try {
-      const { updateSettings } = await import('../api/novel.js')
-      await updateSettings(settings)
+      await updateSettings({
+        defaultProvider: settings.aiProvider === 'deepseek' || settings.aiProvider === 'custom' ? 'openai' : settings.aiProvider,
+        defaultModel: settings.aiModelCustom || settings.aiModel,
+        defaultTemp: settings.temperature / 100,
+        autoPlanApprovalMode: settings.autoPlanApprovalMode,
+        autoResultHandlingMode: settings.autoResultHandlingMode,
+      })
     } catch {
       // Backend save is optional
     }
@@ -862,6 +908,39 @@ async function saveSettings() {
   color: var(--text-secondary);
   margin-bottom: 6px;
   font-weight: 500;
+}
+
+.agent-automation-section {
+  margin: 24px 0 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.subsection-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+}
+
+.label-with-help {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.help-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: help;
 }
 
 .form-input {
