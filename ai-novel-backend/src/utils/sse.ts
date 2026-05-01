@@ -24,6 +24,7 @@ export function sendSSEHeartbeat(reply: FastifyReply): void {
 
 export function sendSSEDone(reply: FastifyReply): void {
   sendSSE(reply, 'done', {})
+  reply.raw.end()
 }
 
 export function sendSSEError(reply: FastifyReply, message: string): void {

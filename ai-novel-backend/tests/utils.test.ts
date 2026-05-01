@@ -54,11 +54,18 @@ describe('SSE Utilities', () => {
     expect(output).toContain('"key":"value"')
   })
 
-  it('sendSSEDone sends done event', () => {
+  it('sendSSEDone sends done event and closes the response', () => {
     const lines: string[] = []
-    const mockReply = { raw: { write(chunk: string) { lines.push(chunk) } } } as any
+    let closed = false
+    const mockReply = {
+      raw: {
+        write(chunk: string) { lines.push(chunk) },
+        end() { closed = true },
+      },
+    } as any
     sendSSEDone(mockReply)
     expect(lines.join('')).toContain('event: done')
+    expect(closed).toBe(true)
   })
 
   it('sendSSEError sends error event', () => {

@@ -26,6 +26,128 @@ interface PlannerOutput {
   writerBrief: string
 }
 
+function asString(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return fallback
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object') {
+        const obj = item as Record<string, unknown>
+        return asString(obj.action) || asString(obj.description) || asString(obj.title)
+      }
+      return ''
+    })
+    .filter(Boolean)
+}
+
+function parseExpectedWords(value: unknown, fallback = 800): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.round(value)
+  if (typeof value === 'string') {
+    const nums = value.match(/\d+/g)?.map(Number).filter(n => Number.isFinite(n) && n > 0) || []
+    if (nums.length >= 2) return Math.round((nums[0] + nums[1]) / 2)
+    if (nums.length === 1) return nums[0]
+  }
+  return fallback
+}
+
+function buildPlannerScene(scene: any, index: number, overrides: Record<string, unknown> = {}) {
+  const normalized: Record<string, unknown> = {
+    id: asString(overrides.id, asString(scene.id, `scene-${index + 1}`)),
+    title: asString(overrides.title, asString(scene.title, `场景 ${index + 1}`)),
+    goal: asString(overrides.goal, asString(scene.goal)),
+    characters: asStringArray(overrides.characters ?? scene.characters),
+    beats: asStringArray(overrides.beats ?? scene.beats),
+    expectedWords: parseExpectedWords(overrides.expectedWords ?? scene.expectedWords),
+    exitState: asString(overrides.exitState, asString(scene.exitState)),
+  }
+
+  const location = asString(overrides.location, asString(scene.location))
+  const time = asString(overrides.time, asString(scene.time))
+  const requiredFacts = asStringArray(overrides.requiredFacts ?? scene.requiredFacts)
+  const foreshadows = asStringArray(overrides.foreshadows ?? scene.foreshadows)
+
+  if (location) normalized.location = location
+  if (time) normalized.time = time
+  if (requiredFacts.length > 0) normalized.requiredFacts = requiredFacts
+  if (foreshadows.length > 0) normalized.foreshadows = foreshadows
+
+  return normalized as PlannerOutput['scenes'][number]
+}
+
+function validatePlannerOutput(plan: Partial<PlannerOutput> | null | undefined): PlannerOutput | null {
+  if (!plan || !Array.isArray(plan.scenes) || plan.scenes.length === 0) return null
+
+  const scenes = plan.scenes.map((scene: any, index) => buildPlannerScene(scene, index))
+
+  if (scenes.some(scene => !scene.goal || scene.beats.length === 0 || !scene.exitState)) return null
+
+  return {
+    schema_version: Number(plan.schema_version) || 1,
+    chapterGoal: asString(plan.chapterGoal, scenes[0].goal),
+    tone: asString(plan.tone, '冷静'),
+    scenes,
+    constraints: asStringArray(plan.constraints),
+    writerBrief: asString(plan.writerBrief, asString(plan.chapterGoal, scenes[0].goal)),
+  }
+}
+
+export function normalizePlannerOutput(raw: any): PlannerOutput | null {
+  const source = raw?.chapter && typeof raw.chapter === 'object' ? raw.chapter : raw
+  const direct = validatePlannerOutput(source)
+  if (direct) return direct
+  if (!source || !Array.isArray(source.scenes) || source.scenes.length === 0) return null
+
+  const fallbackExitState = asString(source.worldRuleCompliance)
+    || asString(source.worldRuleApplication)
+    || asString(source.foreshadowHandling)
+    || asString(source.summary)
+    || '完成当前场景目标，保持后续衔接。'
+
+  const scenes = source.scenes.map((scene: any, index: number) => {
+    const sceneGoal = asString(scene.goal)
+      || asString(scene.description)
+      || asString(scene.summary)
+      || asString(scene.title)
+      || `完成场景 ${index + 1} 的剧情推进。`
+    const beats = asStringArray(scene.beats).length > 0
+      ? asStringArray(scene.beats)
+      : asStringArray(scene.keyActions).length > 0
+        ? asStringArray(scene.keyActions)
+        : asStringArray(scene.actions).length > 0
+          ? asStringArray(scene.actions)
+          : [sceneGoal]
+
+    return buildPlannerScene(scene, index, {
+      id: asString(scene.id, `scene-${index + 1}`),
+      title: asString(scene.title, `场景 ${index + 1}`),
+      goal: sceneGoal,
+      location: asString(scene.location),
+      time: asString(scene.time),
+      characters: asStringArray(scene.characters),
+      beats,
+      requiredFacts: asStringArray(scene.requiredFacts),
+      foreshadows: asStringArray(scene.foreshadows),
+      expectedWords: parseExpectedWords(scene.expectedWords ?? scene.expectedWordCount),
+      exitState: asString(scene.exitState, fallbackExitState),
+    })
+  })
+
+  return validatePlannerOutput({
+    schema_version: Number(source.schema_version) || 1,
+    chapterGoal: asString(source.chapterGoal, asString(source.summary, asString(source.title, scenes[0].goal))),
+    tone: asString(source.tone, asString(source.atmosphere, '冷静')),
+    scenes,
+    constraints: asStringArray(source.constraints),
+    writerBrief: asString(source.writerBrief, asString(source.summary, scenes[0].goal)),
+  })
+}
+
 interface SSESink {
   emit(event: string, data: Record<string, unknown>): void
 }
@@ -160,14 +282,15 @@ export class AgentOrchestrator {
   private async runPlanner(mode: string): Promise<PlannerOutput | null> {
     for (let attempt = 0; attempt < MAX_PLANNER_RETRIES; attempt++) {
       try {
-        const systemPrompt = `你是小说章节规划师。只负责规划章节结构，不写正文。输出严格 JSON。`
-        const prompt = `为${mode === 'continue' ? '续写' : '新写'}本章做规划。\n\n${await this.buildPlannerContext()}\n\n请输出 JSON 格式的章节规划。`
+        const systemPrompt = `你是小说章节规划师。只负责规划章节结构，不写正文。输出严格 JSON，不要输出 markdown。`
+        const prompt = `为${mode === 'continue' ? '续写' : '新写'}本章做规划。\n\n${await this.buildPlannerContext()}\n\n请只输出符合以下 TypeScript 结构的 JSON，不要增减顶层字段：\n{\n  \"schema_version\": 1,\n  \"chapterGoal\": \"本章目标\",\n  \"tone\": \"语气\",\n  \"scenes\": [{\n    \"id\": \"scene-1\",\n    \"title\": \"场景标题\",\n    \"goal\": \"场景目标\",\n    \"location\": \"可选地点\",\n    \"time\": \"可选时间\",\n    \"characters\": [\"角色名\"],\n    \"beats\": [\"动作节拍\"],\n    \"requiredFacts\": [\"必须遵守的事实\"],\n    \"foreshadows\": [\"伏笔处理\"],\n    \"expectedWords\": 800,\n    \"exitState\": \"场景结束状态\"\n  }],\n  \"constraints\": [\"约束\"],\n  \"writerBrief\": \"给 Writer 的简要说明\"\n}`
 
         const result = await this.aiService.generateJSON<PlannerOutput>({
           prompt, systemPrompt, temperature: 0.3,
         })
 
-        if (result && result.scenes?.length > 0) return result
+        const normalized = normalizePlannerOutput(result)
+        if (normalized) return normalized
       } catch (e) { /* retry */ }
     }
     return null
